@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+
+{% block title %}Billing - MediCare Hospital{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Billing Management</h1>
+        <p>Manage and track your hospital bills</p>
+    </div>
+
+    <section class="billing-section">
+        <div class="billing-header">
+            <h2>Create New Bill</h2>
+            <button class="btn btn-primary" id="createBillBtn">+ Create Bill</button>
+        </div>
+
+        <!-- Create Bill Modal -->
+        <div id="billModal" class="modal">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <h2>Create New Bill</h2>
+                <form id="billForm">
+                    <div class="form-group">
+                        <label>Patient Name:</label>
+                        <input type="text" id="billPatientName" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Patient Email:</label>
+                        <input type="email" id="billPatientEmail" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Service:</label>
+                        <select id="billServiceId" required>
+                            <option value="">Select Service...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Amount ($):</label>
+                        <input type="number" id="billAmount" step="0.01" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Description:</label>
+                        <textarea id="billDescription" rows="3"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Create Bill</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Bills Summary -->
+        <div class="bills-summary">
+            <div class="summary-card">
+                <h3>Total Bills</h3>
+                <p id="totalBills" class="summary-number">0</p>
+            </div>
+            <div class="summary-card">
+                <h3>Pending Amount</h3>
+                <p id="pendingAmount" class="summary-amount">$0.00</p>
+            </div>
+            <div class="summary-card">
+                <h3>Paid Amount</h3>
+                <p id="paidAmount" class="summary-amount">$0.00</p>
+            </div>
+        </div>
+
+        <!-- Bills List -->
+        <div class="bills-list-wrapper">
+            <h2>All Bills</h2>
+            <table class="bills-table" id="billsTable">
+                <thead>
+                    <tr>
+                        <th>Bill ID</th>
+                        <th>Patient Name</th>
+                        <th>Amount</th>
+                        <th>Description</th>
+                        <th>Created Date</th>
+                        <th>Due Date</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="billsBody">
+                    <!-- Bills will be loaded here -->
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadServices();
+    loadBills();
+    setupBillForm();
+    setupBillModal();
+});
+
+function loadServices() {
+    fetch('/api/services')
+        .then(response => response.json())
+        .then(data => {
+            const select = document.getElementById('billServiceId');
+            select.innerHTML = '<option value="">Select Service...</option>';
+            data.forEach(service => {
+                const option = document.createElement('option');
+                option.value = service.id;
+                option.textContent = `${service.name} - $${service.charge}`;
+                option.dataset.charge = service.charge;
+                select.appendChild(option);
+            });
+            
+            // Auto-fill amount when service is selected
+            select.addEventListener('change', function() {
+                const selected = this.options[this.selectedIndex];
+                if (selected.dataset.charge) {
+                    document.getElementById('billAmount').value = selected.dataset.charge;
+                }
+            });
+        });
+}
+
+function loadBills() {
+    fetch('/api/bills')
+        .then(response => response.json())
+        .then(data => {
+            const tbody = document.getElementById('billsBody');
+            tbody.innerHTML = '';
+            
+            let total = 0;
+            let pending = 0;
+            let paid = 0;
+            
+            data.forEach(bill => {
+                total++;
+                const createdDate = new Date(bill.created_at).toLocaleDateString();
+                const dueDate = bill.due_date ? new Date(bill.due_date).toLocaleDateString() : 'N/A';
+                
+                if (bill.status === 'Pending') {
+                    pending += bill.amount;
+                } else if (bill.status === 'Paid') {
+                    paid += bill.amount;
+                }
+                
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>#${bill.id}</td>
+                    <td>${bill.patient_name}</td>
+                    <td>$${bill.amount.toFixed(2)}</td>
+                    <td>${bill.description || 'N/A'}</td>
+                    <td>${createdDate}</td>
+                    <td>${dueDate}</td>
+                    <td><span class="status status-${bill.status.toLowerCase()}">${bill.status}</span></td>
+                    <td>
+                        <button class="btn btn-small btn-success" onclick="markAsPaid(${bill.id})">Pay</button>
+                        <button class="btn btn-small btn-danger" onclick="deleteBill(${bill.id})">Delete</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+            
+            document.getElementById('totalBills').textContent = total;
+            document.getElementById('pendingAmount').textContent = '$' + pending.toFixed(2);
+            document.getElementById('paidAmount').textContent = '$' + paid.toFixed(2);
+        });
+}
+
+function setupBillForm() {
+    document.getElementById('billForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const billData = {
+            patient_name: document.getElementById('billPatientName').value,
+            patient_email: document.getElementById('billPatientEmail').value,
+            service_id: document.getElementById('billServiceId').value,
+            amount: document.getElementById('billAmount').value,
+            description: document.getElementById('billDescription').value
+        };
+        
+        fetch('/api/bills', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(billData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Bill created successfully!');
+            document.getElementById('billModal').style.display = 'none';
+            document.getElementById('billForm').reset();
+            loadBills();
+        });
+    });
+}
+
+function setupBillModal() {
+    const modal = document.getElementById('billModal');
+    const btn = document.getElementById('createBillBtn');
+    const span = document.querySelector('#billModal .close');
+    
+    btn.addEventListener('click', () => {
+        modal.style.display = 'block';
+    });
+    
+    span.addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+    
+    window.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.style.display = 'none';
+        }
+    });
+}
+
+function markAsPaid(id) {
+    fetch(`/api/bills/${id}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: 'Paid' })
+    })
+    .then(response => response.json())
+    .then(data => {
+        alert('Bill marked as paid!');
+        loadBills();
+    });
+}
+
+function deleteBill(id) {
+    if (confirm('Delete this bill?')) {
+        fetch(`/api/bills/${id}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Bill deleted!');
+            loadBills();
+        });
+    }
+}
+</script>
+{% endblock %}

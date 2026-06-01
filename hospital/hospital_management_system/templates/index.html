@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block title %}Home - MediCare Hospital{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero-content">
+        <h1>Welcome to MediCare Hospital</h1>
+        <p>Excellence in Healthcare. Your Health is Our Priority.</p>
+        <div class="hero-buttons">
+            <a href="/appointments" class="btn btn-primary">Book Appointment</a>
+            <a href="/hospital-info" class="btn btn-secondary">Learn More</a>
+        </div>
+    </div>
+</section>
+
+<section class="stats-section">
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <i class="fas fa-user-md"></i>
+                <h3 id="doctorsCount">{{ doctors_count }}</h3>
+                <p>Expert Doctors</p>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-users"></i>
+                <h3 id="staffCount">{{ staff_count }}</h3>
+                <p>Professional Staff</p>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-heartbeat"></i>
+                <h3 id="servicesCount">{{ services_count }}</h3>
+                <p>Advanced Services</p>
+            </div>
+            <div class="stat-card">
+                <i class="fas fa-calendar-check"></i>
+                <h3 id="appointmentsCount">{{ appointments_count }}</h3>
+                <p>Happy Patients</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="services-section">
+    <div class="container">
+        <h2>Our Services</h2>
+        <div class="services-grid" id="servicesGrid">
+            <!-- Services will be loaded here -->
+        </div>
+    </div>
+</section>
+
+<section class="doctors-section">
+    <div class="container">
+        <h2>Our Medical Team</h2>
+        <div class="doctors-grid" id="doctorsGrid">
+            <!-- Doctors will be loaded here -->
+        </div>
+    </div>
+</section>
+
+<section class="ratings-section">
+    <div class="container">
+        <h2>Patient Ratings</h2>
+        <div class="ratings-container">
+            <div class="rating-form">
+                <h3>Share Your Experience</h3>
+                <form id="ratingForm">
+                    <input type="text" id="patientName" placeholder="Your Name" required>
+                    <div class="rating-input">
+                        <label>Rating:</label>
+                        <div class="stars">
+                            <i class="fas fa-star" data-value="1"></i>
+                            <i class="fas fa-star" data-value="2"></i>
+                            <i class="fas fa-star" data-value="3"></i>
+                            <i class="fas fa-star" data-value="4"></i>
+                            <i class="fas fa-star" data-value="5"></i>
+                        </div>
+                        <input type="hidden" id="ratingValue" value="5">
+                    </div>
+                    <textarea id="comment" placeholder="Your feedback..." rows="4"></textarea>
+                    <button type="submit" class="btn btn-primary">Submit Rating</button>
+                </form>
+            </div>
+            <div class="ratings-list" id="ratingsList">
+                <!-- Ratings will be loaded here -->
+            </div>
+        </div>
+    </div>
+</section>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadServices();
+    loadDoctors();
+    loadRatings();
+    setupRatingStars();
+    setupRatingForm();
+});
+
+function loadServices() {
+    fetch('/api/services')
+        .then(response => response.json())
+        .then(data => {
+            const grid = document.getElementById('servicesGrid');
+            grid.innerHTML = '';
+            data.slice(0, 6).forEach(service => {
+                const card = document.createElement('div');
+                card.className = 'service-card';
+                card.innerHTML = `
+                    <i class="fas fa-hospital"></i>
+                    <h3>${service.name}</h3>
+                    <p>${service.description}</p>
+                    <p class="price">$${service.charge}</p>
+                `;
+                grid.appendChild(card);
+            });
+        });
+}
+
+function loadDoctors() {
+    fetch('/api/doctors')
+        .then(response => response.json())
+        .then(data => {
+            const grid = document.getElementById('doctorsGrid');
+            grid.innerHTML = '';
+            data.slice(0, 4).forEach(doctor => {
+                const card = document.createElement('div');
+                card.className = 'doctor-card';
+                const imageUrl = doctor.image ? `/static/images/${doctor.image}` : '/static/images/doctor-placeholder.jpg';
+                card.innerHTML = `
+                    <div class="doctor-image">
+                        <img src="${imageUrl}" alt="${doctor.name}">
+                    </div>
+                    <div class="doctor-info">
+                        <h3>${doctor.name}</h3>
+                        <p class="specialization">${doctor.specialization}</p>
+                        <p class="experience">Experience: ${doctor.experience} years</p>
+                        <p class="bio">${doctor.bio}</p>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        });
+}
+
+function loadRatings() {
+    fetch('/api/ratings')
+        .then(response => response.json())
+        .then(data => {
+            const list = document.getElementById('ratingsList');
+            list.innerHTML = '';
+            data.slice(0, 5).forEach(rating => {
+                const ratingDiv = document.createElement('div');
+                ratingDiv.className = 'rating-item';
+                const stars = '<i class="fas fa-star"></i>'.repeat(rating.rating);
+                ratingDiv.innerHTML = `
+                    <div class="rating-header">
+                        <strong>${rating.patient_name}</strong>
+                        <div class="rating-stars">${stars}</div>
+                    </div>
+                    <p>${rating.comment}</p>
+                `;
+                list.appendChild(ratingDiv);
+            });
+        });
+}
+
+function setupRatingStars() {
+    const stars = document.querySelectorAll('.stars i');
+    stars.forEach(star => {
+        star.addEventListener('click', function() {
+            const value = this.getAttribute('data-value');
+            document.getElementById('ratingValue').value = value;
+            
+            stars.forEach(s => s.classList.remove('active'));
+            for (let i = 0; i < value; i++) {
+                stars[i].classList.add('active');
+            }
+        });
+    });
+    
+    // Set initial stars
+    const initialValue = document.getElementById('ratingValue').value;
+    for (let i = 0; i < initialValue; i++) {
+        stars[i].classList.add('active');
+    }
+}
+
+function setupRatingForm() {
+    document.getElementById('ratingForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const ratingData = {
+            patient_name: document.getElementById('patientName').value,
+            rating: document.getElementById('ratingValue').value,
+            comment: document.getElementById('comment').value
+        };
+        
+        fetch('/api/ratings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(ratingData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Thank you for your rating!');
+            document.getElementById('ratingForm').reset();
+            loadRatings();
+        });
+    });
+}
+</script>
+{% endblock %}

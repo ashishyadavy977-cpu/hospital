@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Services - MediCare Hospital{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Hospital Services</h1>
+        <p>Comprehensive healthcare services tailored for you</p>
+    </div>
+
+    <section class="services-management">
+        <div class="management-header">
+            <h2>Manage Services</h2>
+            <button class="btn btn-primary" id="addServiceBtn">+ Add Service</button>
+        </div>
+
+        <!-- Add Service Modal -->
+        <div id="serviceModal" class="modal">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <h2>Add New Service</h2>
+                <form id="serviceForm">
+                    <div class="form-group">
+                        <label>Service Name:</label>
+                        <input type="text" id="serviceName" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Description:</label>
+                        <textarea id="serviceDescription" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Category:</label>
+                        <select id="serviceCategory" required>
+                            <option value="">Select Category</option>
+                            <option value="Consultation">Consultation</option>
+                            <option value="Diagnostics">Diagnostics</option>
+                            <option value="Laboratory">Laboratory</option>
+                            <option value="Surgery">Surgery</option>
+                            <option value="Emergency">Emergency</option>
+                            <option value="Dental">Dental</option>
+                            <option value="Pediatrics">Pediatrics</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Charge ($):</label>
+                        <input type="number" id="serviceCharge" step="0.01" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Service</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Services List -->
+        <div class="services-list" id="servicesList">
+            <!-- Services will be loaded here -->
+        </div>
+    </section>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadServices();
+    setupServiceForm();
+    setupServiceModal();
+});
+
+function loadServices() {
+    fetch('/api/services')
+        .then(response => response.json())
+        .then(data => {
+            const list = document.getElementById('servicesList');
+            list.innerHTML = '';
+            
+            // Group by category
+            const grouped = {};
+            data.forEach(service => {
+                if (!grouped[service.category]) {
+                    grouped[service.category] = [];
+                }
+                grouped[service.category].push(service);
+            });
+            
+            Object.entries(grouped).forEach(([category, services]) => {
+                const categoryDiv = document.createElement('div');
+                categoryDiv.className = 'service-category';
+                categoryDiv.innerHTML = `<h3>${category}</h3>`;
+                
+                const servicesDiv = document.createElement('div');
+                servicesDiv.className = 'services-grid';
+                
+                services.forEach(service => {
+                    const card = document.createElement('div');
+                    card.className = 'service-card-large';
+                    card.innerHTML = `
+                        <div class="service-header">
+                            <h4>${service.name}</h4>
+                            <span class="service-price">$${service.charge}</span>
+                        </div>
+                        <p class="service-description">${service.description}</p>
+                        <div class="service-actions">
+                            <button class="btn btn-danger" onclick="deleteService(${service.id})">Delete</button>
+                        </div>
+                    `;
+                    servicesDiv.appendChild(card);
+                });
+                
+                categoryDiv.appendChild(servicesDiv);
+                list.appendChild(categoryDiv);
+            });
+        });
+}
+
+function setupServiceForm() {
+    document.getElementById('serviceForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const serviceData = {
+            name: document.getElementById('serviceName').value,
+            description: document.getElementById('serviceDescription').value,
+            category: document.getElementById('serviceCategory').value,
+            charge: document.getElementById('serviceCharge').value
+        };
+        
+        fetch('/api/services', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(serviceData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Service added successfully!');
+            document.getElementById('serviceModal').style.display = 'none';
+            document.getElementById('serviceForm').reset();
+            loadServices();
+        });
+    });
+}
+
+function setupServiceModal() {
+    const modal = document.getElementById('serviceModal');
+    const btn = document.getElementById('addServiceBtn');
+    const span = document.querySelector('#serviceModal .close');
+    
+    btn.addEventListener('click', () => {
+        modal.style.display = 'block';
+    });
+    
+    span.addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+    
+    window.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.style.display = 'none';
+        }
+    });
+}
+
+function deleteService(id) {
+    if (confirm('Delete this service?')) {
+        fetch(`/api/services/${id}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Service deleted!');
+            loadServices();
+        });
+    }
+}
+</script>
+{% endblock %}

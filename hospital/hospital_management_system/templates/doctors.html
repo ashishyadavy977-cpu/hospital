@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block title %}Doctors - MediCare Hospital{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Our Doctors</h1>
+        <p>Meet our team of experienced medical professionals</p>
+    </div>
+
+    <section class="doctors-management">
+        <div class="management-header">
+            <h2>Manage Doctors</h2>
+            <button class="btn btn-primary" id="addDoctorBtn">+ Add Doctor</button>
+        </div>
+
+        <!-- Add/Edit Doctor Modal -->
+        <div id="doctorModal" class="modal">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <h2>Add New Doctor</h2>
+                <form id="doctorForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label>Full Name:</label>
+                        <input type="text" id="doctorName" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Specialization:</label>
+                        <input type="text" id="doctorSpecialization" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Years of Experience:</label>
+                        <input type="number" id="doctorExperience" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Phone:</label>
+                        <input type="tel" id="doctorPhone">
+                    </div>
+                    <div class="form-group">
+                        <label>Email:</label>
+                        <input type="email" id="doctorEmail">
+                    </div>
+                    <div class="form-group">
+                        <label>Bio:</label>
+                        <textarea id="doctorBio" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Profile Photo:</label>
+                        <input type="file" id="doctorImage" accept="image/*">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Save Doctor</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Doctors List -->
+        <div class="doctors-grid" id="doctorsGrid">
+            <!-- Doctors will be loaded here -->
+        </div>
+    </section>
+</div>
+
+<!-- Edit Modal (hidden by default) -->
+<div id="editDoctorModal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <span class="close">&times;</span>
+        <h2>Edit Doctor</h2>
+        <form id="editDoctorForm" enctype="multipart/form-data">
+            <input type="hidden" id="editDoctorId">
+            <div class="form-group">
+                <label>Full Name:</label>
+                <input type="text" id="editDoctorName" required>
+            </div>
+            <div class="form-group">
+                <label>Specialization:</label>
+                <input type="text" id="editDoctorSpecialization" required>
+            </div>
+            <div class="form-group">
+                <label>Years of Experience:</label>
+                <input type="number" id="editDoctorExperience" min="0" required>
+            </div>
+            <div class="form-group">
+                <label>Phone:</label>
+                <input type="tel" id="editDoctorPhone">
+            </div>
+            <div class="form-group">
+                <label>Email:</label>
+                <input type="email" id="editDoctorEmail">
+            </div>
+            <div class="form-group">
+                <label>Bio:</label>
+                <textarea id="editDoctorBio" rows="3"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Profile Photo:</label>
+                <input type="file" id="editDoctorImage" accept="image/*">
+            </div>
+            <button type="submit" class="btn btn-primary">Update Doctor</button>
+        </form>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadDoctors();
+    setupDoctorForm();
+    setupModal();
+});
+
+function loadDoctors() {
+    fetch('/api/doctors')
+        .then(response => response.json())
+        .then(data => {
+            const grid = document.getElementById('doctorsGrid');
+            grid.innerHTML = '';
+            data.forEach(doctor => {
+                const imageUrl = doctor.image ? `/static/images/${doctor.image}` : '/static/images/doctor-placeholder.jpg';
+                const card = document.createElement('div');
+                card.className = 'doctor-card-large';
+                card.innerHTML = `
+                    <div class="doctor-card-image">
+                        <img src="${imageUrl}" alt="${doctor.name}">
+                    </div>
+                    <div class="doctor-card-content">
+                        <h3>${doctor.name}</h3>
+                        <p class="specialization">${doctor.specialization}</p>
+                        <p class="experience"><i class="fas fa-briefcase"></i> ${doctor.experience} years experience</p>
+                        <p class="bio">${doctor.bio}</p>
+                        <div class="doctor-contact">
+                            <p><i class="fas fa-phone"></i> ${doctor.phone}</p>
+                            <p><i class="fas fa-envelope"></i> ${doctor.email}</p>
+                        </div>
+                        <div class="doctor-actions">
+                            <button class="btn btn-secondary" onclick="editDoctor(${doctor.id})">Edit</button>
+                            <button class="btn btn-danger" onclick="deleteDoctor(${doctor.id})">Delete</button>
+                            <a href="/appointments" class="btn btn-primary">Book Appointment</a>
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        });
+}
+
+function setupDoctorForm() {
+    document.getElementById('doctorForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData();
+        formData.append('name', document.getElementById('doctorName').value);
+        formData.append('specialization', document.getElementById('doctorSpecialization').value);
+        formData.append('experience', document.getElementById('doctorExperience').value);
+        formData.append('phone', document.getElementById('doctorPhone').value);
+        formData.append('email', document.getElementById('doctorEmail').value);
+        formData.append('bio', document.getElementById('doctorBio').value);
+        
+        if (document.getElementById('doctorImage').files.length > 0) {
+            formData.append('image', document.getElementById('doctorImage').files[0]);
+        }
+        
+        fetch('/api/doctors', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Doctor added successfully!');
+            document.getElementById('doctorModal').style.display = 'none';
+            document.getElementById('doctorForm').reset();
+            loadDoctors();
+        });
+    });
+}
+
+function setupModal() {
+    const modal = document.getElementById('doctorModal');
+    const btn = document.getElementById('addDoctorBtn');
+    const span = document.querySelectorAll('.close')[0];
+    
+    btn.addEventListener('click', () => {
+        modal.style.display = 'block';
+    });
+    
+    span.addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+    
+    window.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.style.display = 'none';
+        }
+    });
+}
+
+function editDoctor(id) {
+    fetch(`/api/doctors/${id}`)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('editDoctorId').value = id;
+            document.getElementById('editDoctorName').value = data.name;
+            document.getElementById('editDoctorSpecialization').value = data.specialization;
+            document.getElementById('editDoctorExperience').value = data.experience;
+            document.getElementById('editDoctorPhone').value = data.phone;
+            document.getElementById('editDoctorEmail').value = data.email;
+            document.getElementById('editDoctorBio').value = data.bio;
+            
+            document.getElementById('editDoctorModal').style.display = 'block';
+        });
+    
+    document.getElementById('editDoctorForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData();
+        formData.append('name', document.getElementById('editDoctorName').value);
+        formData.append('specialization', document.getElementById('editDoctorSpecialization').value);
+        formData.append('experience', document.getElementById('editDoctorExperience').value);
+        formData.append('phone', document.getElementById('editDoctorPhone').value);
+        formData.append('email', document.getElementById('editDoctorEmail').value);
+        formData.append('bio', document.getElementById('editDoctorBio').value);
+        
+        if (document.getElementById('editDoctorImage').files.length > 0) {
+            formData.append('image', document.getElementById('editDoctorImage').files[0]);
+        }
+        
+        fetch(`/api/doctors/${id}`, {
+            method: 'PUT',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Doctor updated successfully!');
+            document.getElementById('editDoctorModal').style.display = 'none';
+            loadDoctors();
+        });
+    }, { once: true });
+}
+
+function deleteDoctor(id) {
+    if (confirm('Are you sure you want to delete this doctor?')) {
+        fetch(`/api/doctors/${id}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Doctor deleted successfully!');
+            loadDoctors();
+        });
+    }
+}
+</script>
+{% endblock %}

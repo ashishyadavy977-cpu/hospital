@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block title %}Hospital Information - MediCare Hospital{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Hospital Information</h1>
+    </div>
+
+    <section class="hospital-info-section">
+        <div class="info-grid">
+            <div class="info-card">
+                <i class="fas fa-building"></i>
+                <h3>About Us</h3>
+                <div id="description"></div>
+            </div>
+            <div class="info-card">
+                <i class="fas fa-star"></i>
+                <h3>Hospital Rating</h3>
+                <div id="rating"></div>
+            </div>
+            <div class="info-card">
+                <i class="fas fa-bed"></i>
+                <h3>Total Beds</h3>
+                <div id="beds"></div>
+            </div>
+            <div class="info-card">
+                <i class="fas fa-phone"></i>
+                <h3>Contact Information</h3>
+                <div id="contact"></div>
+            </div>
+        </div>
+    </section>
+
+    <section class="hospital-details">
+        <h2>Hospital Details</h2>
+        <div class="details-content">
+            <div class="details-left">
+                <div class="detail-item">
+                    <h4>Hospital Name</h4>
+                    <p id="hospitalName"></p>
+                </div>
+                <div class="detail-item">
+                    <h4>Established Year</h4>
+                    <p id="establishedYear"></p>
+                </div>
+                <div class="detail-item">
+                    <h4>Email</h4>
+                    <p id="hospitalEmail"></p>
+                </div>
+                <div class="detail-item">
+                    <h4>Website</h4>
+                    <p id="hospitalWebsite"></p>
+                </div>
+            </div>
+            <div class="details-right">
+                <div class="detail-item">
+                    <h4>Address</h4>
+                    <p id="hospitalAddress"></p>
+                </div>
+                <div class="detail-item">
+                    <h4>Emergency Number</h4>
+                    <p id="emergencyNumber"></p>
+                </div>
+                <div class="detail-item">
+                    <h4>Main Phone</h4>
+                    <p id="hospitalPhone"></p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="hospital-mission">
+        <h2>Our Mission & Vision</h2>
+        <div class="mission-grid">
+            <div class="mission-card">
+                <h3>Our Mission</h3>
+                <p>To provide exceptional healthcare services with compassion, integrity, and excellence. We are committed to improving patient outcomes and community health through innovative medical solutions and dedicated care.</p>
+            </div>
+            <div class="mission-card">
+                <h3>Our Vision</h3>
+                <p>To be a leading healthcare institution recognized for medical excellence, patient-centered care, and community engagement. We strive to create a healthier future for all.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="values-section">
+        <h2>Our Core Values</h2>
+        <div class="values-grid">
+            <div class="value-card">
+                <i class="fas fa-heart"></i>
+                <h3>Compassion</h3>
+                <p>We care deeply about our patients' wellbeing and treat every individual with dignity and respect.</p>
+            </div>
+            <div class="value-card">
+                <i class="fas fa-check"></i>
+                <h3>Excellence</h3>
+                <p>We maintain the highest standards of medical practice and continuous improvement in all our services.</p>
+            </div>
+            <div class="value-card">
+                <i class="fas fa-handshake"></i>
+                <h3>Integrity</h3>
+                <p>We operate with honesty, transparency, and ethical principles in all our dealings.</p>
+            </div>
+            <div class="value-card">
+                <i class="fas fa-lightbulb"></i>
+                <h3>Innovation</h3>
+                <p>We embrace modern technology and innovative approaches to enhance patient care.</p>
+            </div>
+        </div>
+    </section>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadHospitalInfo();
+});
+
+function loadHospitalInfo() {
+    fetch('/api/hospital-info')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('hospitalName').textContent = data.name;
+            document.getElementById('description').innerHTML = `<p>${data.description}</p>`;
+            document.getElementById('rating').innerHTML = `<p class="rating-large"><i class="fas fa-star"></i> ${data.rating}/5</p>`;
+            document.getElementById('beds').innerHTML = `<p class="beds-large">${data.total_beds} Beds</p>`;
+            document.getElementById('contact').innerHTML = `
+                <p><strong>Phone:</strong> ${data.phone}</p>
+                <p><strong>Email:</strong> ${data.email}</p>
+            `;
+            document.getElementById('hospitalEmail').textContent = data.email;
+            document.getElementById('hospitalPhone').textContent = data.phone;
+            document.getElementById('hospitalAddress').textContent = data.address;
+            document.getElementById('hospitalWebsite').innerHTML = `<a href="https://${data.website}" target="_blank">${data.website}</a>`;
+            document.getElementById('establishedYear').textContent = data.established_year;
+            document.getElementById('emergencyNumber').textContent = data.emergency_number;
+        });
+}
+</script>
+{% endblock %}

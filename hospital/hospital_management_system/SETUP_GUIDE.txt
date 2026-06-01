@@ -1,0 +1,412 @@
+==============================================================================
+                    HOSPITAL MANAGEMENT SYSTEM
+                      ADVANCED SETUP GUIDE v1.0
+==============================================================================
+
+📋 TABLE OF CONTENTS
+====================
+1. System Requirements
+2. Pre-Installation Checklist
+3. Installation Steps
+4. Running the Application
+5. Accessing the Application
+6. Troubleshooting
+7. Features Overview
+8. Support & Resources
+
+==============================================================================
+1. SYSTEM REQUIREMENTS
+==============================================================================
+
+Minimum Requirements:
+├─ Operating System: Windows 10+, macOS 10.14+, Linux (Ubuntu 18.04+)
+├─ Python: 3.7 or higher
+├─ RAM: 2GB minimum (4GB recommended)
+├─ Disk Space: 200MB
+└─ Internet: Required for initial setup
+
+Browser Requirements:
+├─ Chrome 90+
+├─ Firefox 88+
+├─ Safari 14+
+├─ Edge 90+
+└─ Any modern mobile browser
+
+Optional:
+├─ Git (for version control)
+├─ VS Code (for editing)
+└─ Postman (for API testing)
+
+==============================================================================
+2. PRE-INSTALLATION CHECKLIST
+==============================================================================
+
+Before starting, ensure:
+☐ Python 3.7+ is installed
+☐ You have admin/sudo access
+☐ Internet connection is available
+☐ At least 200MB free disk space
+☐ Port 5000 is available (or willing to change it)
+☐ You're in the hospital_management_system directory
+
+Check Python Installation:
+────────────────────────
+
+Windows (Command Prompt):
+  python --version
+
+Mac/Linux (Terminal):
+  python3 --version
+
+Expected Output: Python 3.x.x
+
+==============================================================================
+3. INSTALLATION STEPS
+==============================================================================
+
+STEP 1: Navigate to Project Directory
+────────────────────────────────────
+
+Windows (Command Prompt):
+  cd "C:\Users\[YourUsername]\OneDrive\Desktop\hospital\hospital_management_system"
+
+Mac/Linux (Terminal):
+  cd ~/Desktop/hospital/hospital_management_system
+
+STEP 2: Create Python Virtual Environment (Optional but Recommended)
+──────────────────────────────────────────────────────────────────
+
+Windows:
+  python -m venv venv
+  venv\Scripts\activate
+
+Mac/Linux:
+  python3 -m venv venv
+  source venv/bin/activate
+
+STEP 3: Install Dependencies
+──────────────────────────────
+
+Windows:
+  pip install -r requirements.txt
+
+Mac/Linux:
+  pip3 install -r requirements.txt
+
+Expected Output:
+  Successfully installed Flask-2.3.0 Flask-SQLAlchemy-3.0.0 ...
+
+STEP 4: Verify Installation
+───────────────────────────
+
+Windows:
+  pip list
+
+Mac/Linux:
+  pip3 list
+
+Should show:
+  Flask        2.3.0
+  Flask-SQLAlchemy  3.0.0
+  SQLAlchemy   2.0.0
+  Werkzeug     2.3.0
+
+==============================================================================
+4. RUNNING THE APPLICATION
+==============================================================================
+
+OPTION A: Using Startup Scripts (Recommended)
+──────────────────────────────────────────────
+
+Windows:
+  1. Double-click: run.bat
+     OR
+  2. Command Prompt: run.bat
+
+Mac/Linux:
+  1. Terminal: bash run.sh
+     OR
+  2. Terminal: chmod +x run.sh && ./run.sh
+
+OPTION B: Manual Start
+──────────────────────
+
+Windows (Command Prompt):
+  python app.py
+
+Mac/Linux (Terminal):
+  python3 app.py
+
+OPTION C: Using Flask CLI
+──────────────────────────
+
+Windows (Command Prompt):
+  set FLASK_APP=app.py
+  set FLASK_ENV=development
+  flask run
+
+Mac/Linux (Terminal):
+  export FLASK_APP=app.py
+  export FLASK_ENV=development
+  flask run
+
+Expected Output:
+  * Running on http://127.0.0.1:5000
+  * Debug mode: on
+  WARNING: This is a development server...
+
+==============================================================================
+5. ACCESSING THE APPLICATION
+==============================================================================
+
+After successful startup:
+
+1. Open Web Browser
+   ├─ Chrome, Firefox, Safari, or Edge
+
+2. Type in Address Bar
+   └─ http://localhost:5000
+
+3. You should see the Homepage
+   ├─ Welcome section
+   ├─ Statistics cards
+   ├─ Services section
+   ├─ Our medical team
+   └─ Patient ratings
+
+4. Available Pages
+   ├─ Home → http://localhost:5000/
+   ├─ Hospital Info → http://localhost:5000/hospital-info
+   ├─ Doctors → http://localhost:5000/doctors
+   ├─ Staff → http://localhost:5000/staff
+   ├─ Services → http://localhost:5000/services
+   ├─ Appointments → http://localhost:5000/appointments
+   └─ Billing → http://localhost:5000/bills
+
+5. Test Features
+   ✓ Navigate menu
+   ✓ Use search bar
+   ✓ View sample data
+   ✓ Test responsive design (resize browser)
+   ✓ Add new records
+   ✓ Upload images
+
+==============================================================================
+6. TROUBLESHOOTING
+==============================================================================
+
+ISSUE: "Python not found" or "'python' is not recognized"
+────────────────────────────────────────────────────────
+Solution A: Add Python to PATH
+  1. Download Python from python.org
+  2. During installation, CHECK: "Add Python to PATH"
+  3. Restart Command Prompt/Terminal
+  4. Test: python --version
+
+Solution B: Use full path
+  Windows: C:\Python39\python.exe app.py
+  Mac: /usr/bin/python3 app.py
+
+ISSUE: "Permission denied" or "Access denied"
+──────────────────────────────────────────────
+Solution:
+  Windows: Run Command Prompt as Administrator
+  Mac/Linux: Use: sudo python3 app.py
+             OR: sudo bash run.sh
+
+ISSUE: "Port 5000 already in use"
+────────────────────────────────
+Solution 1: Change port in app.py
+  Find last line: app.run(debug=True, host='0.0.0.0', port=5000)
+  Change to: app.run(debug=True, host='0.0.0.0', port=5001)
+
+Solution 2: Kill process using port 5000
+  Windows: netstat -ano | findstr :5000
+           taskkill /PID <PID> /F
+  
+  Mac/Linux: lsof -i :5000
+             kill -9 <PID>
+
+ISSUE: "ModuleNotFoundError: No module named 'flask'"
+─────────────────────────────────────────────────────
+Solution:
+  Windows: pip install flask flask-sqlalchemy
+  Mac/Linux: pip3 install flask flask-sqlalchemy
+
+ISSUE: "Database locked" or "Database errors"
+──────────────────────────────────────────────
+Solution:
+  1. Stop the application (Ctrl+C)
+  2. Delete: hospital.db
+  3. Restart the application
+  4. Database will be recreated automatically
+
+ISSUE: "Cannot upload images" or "File upload fails"
+────────────────────────────────────────────────────
+Solution:
+  1. Ensure images are: PNG, JPG, JPEG, or GIF
+  2. File size must be < 16MB
+  3. Check folder permissions: static/images/uploads
+  4. Try uploading different image file
+
+ISSUE: "Website won't load" or "Connection refused"
+───────────────────────────────────────────────────
+Solution:
+  1. Check if app.py is running (see output on terminal)
+  2. Verify URL: http://localhost:5000
+  3. Not https:// (unless configured)
+  4. Check firewall settings
+  5. Try different port (see "Port 5000 already in use")
+
+ISSUE: "Forms not submitting" or "AJAX errors"
+──────────────────────────────────────────────
+Solution:
+  1. Open browser Developer Tools (F12)
+  2. Check Console tab for errors
+  3. Check Network tab for failed requests
+  4. Ensure JavaScript is enabled
+  5. Clear browser cache (Ctrl+Shift+Delete)
+
+ISSUE: "Mobile view not responsive"
+───────────────────────────────────
+Solution:
+  1. Open DevTools (F12)
+  2. Click mobile icon
+  3. Try different device sizes
+  4. Clear browser cache
+  5. Refresh page (Ctrl+F5)
+
+==============================================================================
+7. FEATURES OVERVIEW
+==============================================================================
+
+🏥 CORE FEATURES:
+
+1. DOCTOR MANAGEMENT
+   ✓ View all doctors
+   ✓ Add new doctor
+   ✓ Upload doctor photo
+   ✓ Edit doctor details
+   ✓ Delete doctor
+   ✓ Filter by specialization
+
+2. PATIENT APPOINTMENTS
+   ✓ Book appointment with doctor
+   ✓ Select appointment date/time
+   ✓ Track appointment status
+   ✓ View appointment history
+   ✓ Cancel appointment
+
+3. BILLING SYSTEM
+   ✓ Create patient bills
+   ✓ Link bills to services
+   ✓ Track payment status
+   ✓ View billing summary
+   ✓ Mark bills as paid
+
+4. SERVICE MANAGEMENT
+   ✓ View all services
+   ✓ Add new services
+   ✓ Set service charges
+   ✓ Categorize services
+   ✓ Delete services
+
+5. STAFF DIRECTORY
+   ✓ View all staff members
+   ✓ Add staff member
+   ✓ Upload staff photo
+   ✓ Track department
+   ✓ Filter by position
+
+6. HOSPITAL INFORMATION
+   ✓ View hospital details
+   ✓ Read mission & vision
+   ✓ Check core values
+   ✓ Contact information
+   ✓ Emergency numbers
+
+7. RATINGS & REVIEWS
+   ✓ Submit patient ratings
+   ✓ Leave comments
+   ✓ Star-based rating system
+   ✓ View all reviews
+
+8. SEARCH FUNCTIONALITY
+   ✓ Search doctors
+   ✓ Search services
+   ✓ Search staff
+   ✓ Real-time results
+   ✓ Quick navigation
+
+==============================================================================
+8. SUPPORT & RESOURCES
+==============================================================================
+
+DOCUMENTATION:
+  Primary: README.md
+  Quick Start: QUICKSTART.txt
+  Structure: PROJECT_STRUCTURE.txt
+  This File: SETUP_GUIDE.txt
+
+CODE STRUCTURE:
+  Backend: app.py (850+ lines)
+  Frontend: templates/ (8 HTML files)
+  Styling: static/css/style.css (1000+ lines)
+  JavaScript: static/js/main.js (300+ lines)
+
+GETTING HELP:
+  1. Check README.md for feature details
+  2. Review QUICKSTART.txt for common issues
+  3. Check browser console (F12) for errors
+  4. Verify all dependencies installed
+  5. Try database reset (delete hospital.db)
+
+API DOCUMENTATION:
+  Available Routes in app.py:
+  - Line 1-50: Models
+  - Line 51-150: Hospital Info Routes
+  - Line 151-250: Doctor Routes
+  - Line 251-350: Staff Routes
+  - Line 351-450: Services Routes
+  - Line 451-550: Appointments Routes
+  - Line 551-650: Billing Routes
+  - Line 651-750: Ratings Routes
+  - Line 751-850: Search Routes
+
+DATABASE:
+  Location: hospital.db (auto-created)
+  Format: SQLite3
+  Tables: 8 (hospitals, patients, doctors, staff, services, appointments, bills, ratings)
+
+NEXT STEPS:
+  1. Add sample doctors
+  2. Add services with charges
+  3. Configure hospital details
+  4. Create test appointments
+  5. Generate sample bills
+  6. Submit ratings
+
+FEATURES TO EXPLORE:
+  □ Doctor photo upload
+  □ Staff directory
+  □ Service management
+  □ Appointment booking
+  □ Bill creation
+  □ Rating submission
+  □ Search functionality
+  □ Responsive design
+
+==============================================================================
+                        READY TO START?
+==============================================================================
+
+1. Open Command Prompt/Terminal
+2. Navigate to project directory
+3. Run: python app.py (or use run.bat/run.sh)
+4. Open: http://localhost:5000
+5. Enjoy the application!
+
+For more information, refer to README.md
+
+Good luck! 🏥
+==============================================================================

@@ -1,0 +1,117 @@
+QUICK START GUIDE
+================
+
+HOSPITAL MANAGEMENT SYSTEM - ADVANCED APPLICATION
+Professional Healthcare Management Solution
+
+INSTALLATION STEPS:
+==================
+
+Step 1: Install Dependencies
+   Windows: Open Command Prompt and run:
+   pip install -r requirements.txt
+   
+   Mac/Linux: Open Terminal and run:
+   pip3 install -r requirements.txt
+
+Step 2: Run the Application
+
+   Option A: Using Batch File (Windows)
+   - Double-click: run.bat
+
+   Option B: Using Shell Script (Mac/Linux)
+   - Terminal: bash run.sh
+   - Or: chmod +x run.sh && ./run.sh
+
+   Option C: Manual Run
+   - Windows: python app.py
+   - Mac/Linux: python3 app.py
+
+Step 3: Access the Application
+   - Open your web browser
+   - Go to: http://localhost:5000
+   - Application is now ready to use!
+
+FEATURES OVERVIEW:
+=================
+
+✓ Doctor Management with Photos
+✓ Bill Management System
+✓ Appointment Booking
+✓ Service Management with Charges
+✓ Staff Directory
+✓ Hospital Services Catalog
+✓ Patient Ratings & Reviews
+✓ Global Search Bar
+✓ Hospital Information Page
+✓ Responsive Design
+✓ Professional UI/UX
+
+DATABASE:
+=========
+- Automatically created: hospital.db
+- SQLite database in the project folder
+- Sample data populated on first run
+
+KEY PAGES:
+==========
+1. Home (/) - Dashboard with stats
+2. Hospital Info (/hospital-info) - Hospital details
+3. Doctors (/doctors) - Doctor management
+4. Staff (/staff) - Staff directory
+5. Services (/services) - Service catalog
+6. Appointments (/appointments) - Book appointments
+7. Billing (/bills) - Manage bills
+
+SYSTEM REQUIREMENTS:
+====================
+- Python 3.7+
+- pip (Python Package Manager)
+- Modern web browser (Chrome, Firefox, Safari, Edge)
+- 100MB disk space
+
+TROUBLESHOOTING:
+================
+
+Issue: "Python not found"
+Solution: Install Python from python.org
+
+Issue: "Port 5000 already in use"
+Solution: Change port in app.py (last lines)
+
+Issue: "Cannot find modules"
+Solution: Ensure pip install was completed successfully
+
+Issue: "Database errors"
+Solution: Delete hospital.db and restart app
+
+SUPPORT:
+========
+Refer to README.md for detailed documentation
+All features include inline documentation
+
+TIPS:
+=====
+- Use search bar for quick navigation
+- All forms have validation
+- Upload doctor/staff photos as PNG, JPG, JPEG, GIF
+- Maximum file size: 16MB
+- Database saved automatically
+- No configuration needed
+
+KEYBOARD SHORTCUTS:
+===================
+- Tab: Navigate form fields
+- Enter: Submit forms
+- Escape: Close modals
+
+NEXT STEPS:
+===========
+1. Add doctors and staff
+2. Configure services and charges
+3. Set up hospital information
+4. Enable patient appointments
+5. Manage billing and payments
+
+ENJOY THE APPLICATION!
+=====================

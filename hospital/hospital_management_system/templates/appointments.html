@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+
+{% block title %}Appointments - MediCare Hospital{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>Appointment Booking</h1>
+        <p>Schedule your appointment with our expert doctors</p>
+    </div>
+
+    <section class="appointment-section">
+        <div class="appointment-container">
+            <div class="appointment-form-wrapper">
+                <h2>Book an Appointment</h2>
+                <form id="appointmentForm">
+                    <div class="form-group">
+                        <label>Patient Name:</label>
+                        <input type="text" id="patientName" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Email:</label>
+                        <input type="email" id="patientEmail" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Phone:</label>
+                        <input type="tel" id="patientPhone" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Select Doctor:</label>
+                        <select id="doctorSelect" required>
+                            <option value="">Choose a doctor...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Appointment Date & Time:</label>
+                        <input type="datetime-local" id="appointmentDate" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Reason for Visit:</label>
+                        <textarea id="appointmentReason" rows="3" placeholder="Describe your symptoms or reason for visit..."></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Book Appointment</button>
+                </form>
+            </div>
+
+            <div class="appointment-info">
+                <div class="info-card">
+                    <i class="fas fa-clock"></i>
+                    <h3>Fast Scheduling</h3>
+                    <p>Get an appointment within 24 hours</p>
+                </div>
+                <div class="info-card">
+                    <i class="fas fa-user-md"></i>
+                    <h3>Expert Doctors</h3>
+                    <p>Choose from our team of specialists</p>
+                </div>
+                <div class="info-card">
+                    <i class="fas fa-check"></i>
+                    <h3>Confirmation</h3>
+                    <p>Instant confirmation via email</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Appointments List -->
+    <section class="appointments-list-section">
+        <h2>Recent Appointments</h2>
+        <div class="appointments-table-wrapper">
+            <table class="appointments-table" id="appointmentsTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Patient Name</th>
+                        <th>Doctor</th>
+                        <th>Date & Time</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="appointmentsBody">
+                    <!-- Appointments will be loaded here -->
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadDoctors();
+    loadAppointments();
+    setupAppointmentForm();
+    
+    // Set minimum date to today
+    const today = new Date().toISOString().slice(0, 16);
+    document.getElementById('appointmentDate').setAttribute('min', today);
+});
+
+function loadDoctors() {
+    fetch('/api/doctors')
+        .then(response => response.json())
+        .then(data => {
+            const select = document.getElementById('doctorSelect');
+            select.innerHTML = '<option value="">Choose a doctor...</option>';
+            data.forEach(doctor => {
+                const option = document.createElement('option');
+                option.value = doctor.id;
+                option.textContent = `Dr. ${doctor.name} - ${doctor.specialization}`;
+                select.appendChild(option);
+            });
+        });
+}
+
+function loadAppointments() {
+    fetch('/api/appointments')
+        .then(response => response.json())
+        .then(data => {
+            const tbody = document.getElementById('appointmentsBody');
+            tbody.innerHTML = '';
+            data.forEach(appointment => {
+                const date = new Date(appointment.appointment_date);
+                const formattedDate = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>#${appointment.id}</td>
+                    <td>${appointment.patient_name}</td>
+                    <td>${appointment.doctor_name}</td>
+                    <td>${formattedDate}</td>
+                    <td><span class="status status-${appointment.status.toLowerCase()}">${appointment.status}</span></td>
+                    <td>
+                        <button class="btn btn-small btn-warning" onclick="updateAppointmentStatus(${appointment.id})">Update</button>
+                        <button class="btn btn-small btn-danger" onclick="deleteAppointment(${appointment.id})">Cancel</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        });
+}
+
+function setupAppointmentForm() {
+    document.getElementById('appointmentForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const appointmentData = {
+            patient_name: document.getElementById('patientName').value,
+            patient_email: document.getElementById('patientEmail').value,
+            patient_phone: document.getElementById('patientPhone').value,
+            doctor_id: document.getElementById('doctorSelect').value,
+            appointment_date: document.getElementById('appointmentDate').value,
+            reason: document.getElementById('appointmentReason').value
+        };
+        
+        fetch('/api/appointments', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(appointmentData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Appointment booked successfully!');
+            document.getElementById('appointmentForm').reset();
+            loadAppointments();
+        })
+        .catch(error => alert('Error booking appointment: ' + error));
+    });
+}
+
+function updateAppointmentStatus(id) {
+    const newStatus = prompt('Enter new status (Pending/Confirmed/Completed/Cancelled):');
+    if (newStatus) {
+        fetch(`/api/appointments/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ status: newStatus })
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Appointment updated!');
+            loadAppointments();
+        });
+    }
+}
+
+function deleteAppointment(id) {
+    if (confirm('Are you sure you want to cancel this appointment?')) {
+        fetch(`/api/appointments/${id}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Appointment cancelled!');
+            loadAppointments();
+        });
+    }
+}
+</script>
+{% endblock %}
