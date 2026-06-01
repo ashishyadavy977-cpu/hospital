@@ -1,0 +1,527 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - Hospital Management System{% endblock %}
+
+{% block content %}
+<div class="admin-dashboard-container">
+    <div class="dashboard-header">
+        <h1><i class="fas fa-lock"></i> Admin Dashboard</h1>
+        <p>System Administration Panel</p>
+    </div>
+    
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <div class="dashboard-content">
+        <!-- Sidebar Navigation -->
+        <div class="dashboard-sidebar">
+            <ul class="dashboard-menu">
+                <li><a href="#overview" class="menu-link active" onclick="showSection('overview')">
+                    <i class="fas fa-chart-line"></i> Overview
+                </a></li>
+                <li><a href="#users" class="menu-link" onclick="showSection('users')">
+                    <i class="fas fa-users"></i> All Users
+                </a></li>
+                <li><a href="#appointments" class="menu-link" onclick="showSection('appointments')">
+                    <i class="fas fa-calendar"></i> All Appointments
+                </a></li>
+                <li><a href="#bills" class="menu-link" onclick="showSection('bills')">
+                    <i class="fas fa-file-invoice-dollar"></i> All Bills
+                </a></li>
+                <li><a href="{{ url_for('index') }}" class="menu-link">
+                    <i class="fas fa-home"></i> Back to Home
+                </a></li>
+                <li><a href="{{ url_for('logout') }}" class="menu-link logout">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </a></li>
+            </ul>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="dashboard-main">
+            <!-- Overview Section -->
+            <section id="overview" class="dashboard-section active">
+                <h2>Dashboard Overview</h2>
+                <div class="stats-container">
+                    <div class="stat-card">
+                        <i class="fas fa-users"></i>
+                        <div>
+                            <p class="stat-label">Total Users</p>
+                            <p class="stat-value">{{ total_users }}</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-calendar-check"></i>
+                        <div>
+                            <p class="stat-label">Total Appointments</p>
+                            <p class="stat-value">{{ total_appointments }}</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-clock"></i>
+                        <div>
+                            <p class="stat-label">Pending Appointments</p>
+                            <p class="stat-value">{{ pending_appointments }}</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <i class="fas fa-file-invoice-dollar"></i>
+                        <div>
+                            <p class="stat-label">Total Bills</p>
+                            <p class="stat-value">{{ total_bills }}</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="admin-actions">
+                    <h3>Quick Actions</h3>
+                    <div class="action-buttons">
+                        <a href="{{ url_for('appointments_page') }}" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Create Appointment
+                        </a>
+                        <a href="{{ url_for('doctors') }}" class="btn btn-primary">
+                            <i class="fas fa-user-md"></i> Manage Doctors
+                        </a>
+                        <a href="{{ url_for('staff_page') }}" class="btn btn-primary">
+                            <i class="fas fa-users"></i> Manage Staff
+                        </a>
+                        <a href="{{ url_for('services_page') }}" class="btn btn-primary">
+                            <i class="fas fa-briefcase"></i> Manage Services
+                        </a>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Users Section -->
+            <section id="users" class="dashboard-section">
+                <h2>All Users</h2>
+                {% if users %}
+                    <div class="users-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Username</th>
+                                    <th>Email</th>
+                                    <th>Phone</th>
+                                    <th>Joined</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for user in users %}
+                                    <tr>
+                                        <td>{{ user.full_name }}</td>
+                                        <td>{{ user.username }}</td>
+                                        <td>{{ user.email }}</td>
+                                        <td>{{ user.phone or 'N/A' }}</td>
+                                        <td>{{ user.created_at.strftime('%Y-%m-%d') }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="empty-message">No users found.</p>
+                {% endif %}
+            </section>
+            
+            <!-- Appointments Section -->
+            <section id="appointments" class="dashboard-section">
+                <h2>All Appointments</h2>
+                {% if appointments %}
+                    <div class="appointments-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Patient</th>
+                                    <th>Doctor</th>
+                                    <th>Date & Time</th>
+                                    <th>Reason</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for appointment in appointments %}
+                                    <tr>
+                                        <td>{{ appointment.patient_name }}</td>
+                                        <td>{{ appointment.doctor.name }} ({{ appointment.doctor.specialization }})</td>
+                                        <td>{{ appointment.appointment_date.strftime('%Y-%m-%d %H:%M') }}</td>
+                                        <td>{{ appointment.reason or 'N/A' }}</td>
+                                        <td><span class="status-badge status-{{ appointment.status.lower() }}">{{ appointment.status }}</span></td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="empty-message">No appointments found.</p>
+                {% endif %}
+            </section>
+            
+            <!-- Bills Section -->
+            <section id="bills" class="dashboard-section">
+                <h2>All Bills</h2>
+                {% if bills %}
+                    <div class="bills-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Patient</th>
+                                    <th>Description</th>
+                                    <th>Amount</th>
+                                    <th>Status</th>
+                                    <th>Created Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for bill in bills %}
+                                    <tr>
+                                        <td>{{ bill.patient_name }}</td>
+                                        <td>{{ bill.description or 'Service Charge' }}</td>
+                                        <td>${{ "%.2f"|format(bill.amount) }}</td>
+                                        <td><span class="status-badge status-{{ bill.status.lower() }}">{{ bill.status }}</span></td>
+                                        <td>{{ bill.created_at.strftime('%Y-%m-%d') }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="empty-message">No bills found.</p>
+                {% endif %}
+            </section>
+        </div>
+    </div>
+</div>
+
+<style>
+.admin-dashboard-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.dashboard-header {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: white;
+    padding: 30px;
+    border-radius: 10px;
+    margin-bottom: 30px;
+}
+
+.dashboard-header h1 {
+    margin: 0 0 10px 0;
+    font-size: 32px;
+}
+
+.dashboard-header p {
+    margin: 0;
+    font-size: 16px;
+}
+
+.dashboard-content {
+    display: flex;
+    gap: 20px;
+}
+
+.dashboard-sidebar {
+    width: 200px;
+}
+
+.dashboard-menu {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.dashboard-menu li {
+    margin-bottom: 10px;
+}
+
+.menu-link {
+    display: block;
+    padding: 12px 16px;
+    background: #f5f5f5;
+    color: #333;
+    text-decoration: none;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    border-left: 4px solid transparent;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+.menu-link:hover {
+    background: #ffe8e8;
+    border-left-color: #e74c3c;
+    padding-left: 20px;
+    transform: translateX(4px);
+}
+
+.menu-link.active {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: white;
+    border-left-color: #e74c3c;
+    box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+}
+
+.menu-link.logout {
+    color: #e74c3c;
+}
+
+.menu-link.logout:hover {
+    background: #fff5f5;
+    border-left-color: #e74c3c;
+    padding-left: 20px;
+    transform: translateX(4px);
+}
+}
+
+.dashboard-main {
+    flex: 1;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    padding: 30px;
+}
+
+.dashboard-section {
+    display: none;
+}
+
+.dashboard-section.active {
+    display: block;
+    animation: fadeIn 0.3s;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.dashboard-section h2 {
+    color: #333;
+    margin-top: 0;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #e74c3c;
+    padding-bottom: 10px;
+}
+
+.stats-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.stat-card {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.stat-card i {
+    font-size: 32px;
+}
+
+.stat-label {
+    margin: 0;
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+.stat-value {
+    margin: 5px 0 0 0;
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.admin-actions {
+    background: #f9f9f9;
+    padding: 20px;
+    border-radius: 10px;
+    margin-top: 30px;
+}
+
+.admin-actions h3 {
+    margin-top: 0;
+    color: #333;
+}
+
+.action-buttons {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.action-buttons .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 14px 20px;
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: white !important;
+    text-decoration: none;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3);
+}
+
+.action-buttons .btn:hover {
+    background: linear-gradient(135deg, #c0392b 0%, #a93226 100%);
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px rgba(231, 76, 60, 0.4);
+    color: white !important;
+}
+
+.action-buttons .btn:active {
+    transform: translateY(-1px);
+}
+
+.users-table, .appointments-table, .bills-table {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+table thead {
+    background: #f5f5f5;
+}
+
+table th {
+    padding: 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #333;
+}
+
+table td {
+    padding: 12px;
+    border-bottom: 1px solid #eee;
+}
+
+table tbody tr:hover {
+    background: #f9f9f9;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.status-pending {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.status-completed {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-confirmed {
+    background: #d1ecf1;
+    color: #0c5460;
+}
+
+.empty-message {
+    text-align: center;
+    color: #999;
+    padding: 20px;
+}
+
+.alert {
+    padding: 12px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    border: 1px solid #ddd;
+}
+
+.alert-danger {
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+    color: #721c24;
+}
+
+.alert-success {
+    background-color: #d4edda;
+    border-color: #c3e6cb;
+    color: #155724;
+}
+
+.alert-info {
+    background-color: #d1ecf1;
+    border-color: #bee5eb;
+    color: #0c5460;
+}
+
+@media (max-width: 768px) {
+    .dashboard-content {
+        flex-direction: column;
+    }
+    
+    .dashboard-sidebar {
+        width: 100%;
+    }
+    
+    .dashboard-menu {
+        display: flex;
+        flex-wrap: wrap;
+    }
+    
+    .dashboard-menu li {
+        flex: 1;
+        min-width: 150px;
+        margin-bottom: 10px;
+    }
+    
+    .stats-container {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .action-buttons {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+<script>
+function showSection(sectionId) {
+    // Hide all sections
+    const sections = document.querySelectorAll('.dashboard-section');
+    sections.forEach(section => section.classList.remove('active'));
+    
+    // Remove active class from all menu links
+    const menuLinks = document.querySelectorAll('.menu-link');
+    menuLinks.forEach(link => link.classList.remove('active'));
+    
+    // Show the selected section
+    document.getElementById(sectionId).classList.add('active');
+    
+    // Add active class to the clicked menu link
+    event.target.closest('.menu-link').classList.add('active');
+}
+</script>
+{% endblock %}

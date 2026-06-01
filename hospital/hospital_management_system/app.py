@@ -1,8 +1,9 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
 import os
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import json
 
@@ -64,6 +65,7 @@ class Service(db.Model):
 
 class Appointment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     patient_name = db.Column(db.String(100), nullable=False)
     patient_email = db.Column(db.String(100), nullable=False)
     patient_phone = db.Column(db.String(20), nullable=False)
@@ -76,6 +78,7 @@ class Appointment(db.Model):
 
 class Bill(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     patient_name = db.Column(db.String(100), nullable=False)
     patient_email = db.Column(db.String(100), nullable=False)
     appointment_id = db.Column(db.Integer, db.ForeignKey('appointment.id'))
@@ -95,12 +98,202 @@ class Rating(db.Model):
     comment = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.now)
 
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    full_name = db.Column(db.String(100), nullable=False)
+    user_type = db.Column(db.String(20), default='patient')  # 'admin' or 'patient'
+    phone = db.Column(db.String(20))
+    date_of_birth = db.Column(db.Date)
+    address = db.Column(db.Text)
+    medical_history = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    appointments = db.relationship('Appointment', backref='user', foreign_keys='Appointment.user_id', cascade='all, delete-orphan')
+    bills = db.relationship('Bill', backref='user', foreign_keys='Bill.user_id', cascade='all, delete-orphan')
+    
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+    
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
 # ==================== UTILITY FUNCTIONS ====================
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('Please log in first', 'danger')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('Please log in first', 'danger')
+            return redirect(url_for('login'))
+        user = User.query.get(session['user_id'])
+        if not user or user.user_type != 'admin':
+            flash('Admin access required', 'danger')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 # ==================== ROUTES ====================
+
+# ==================== AUTHENTICATION ROUTES ====================
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        full_name = request.form.get('full_name')
+        
+        if not all([username, email, password, confirm_password, full_name]):
+            flash('All fields are required', 'danger')
+            return redirect(url_for('register'))
+        
+        if password != confirm_password:
+            flash('Passwords do not match', 'danger')
+            return redirect(url_for('register'))
+        
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists', 'danger')
+            return redirect(url_for('register'))
+        
+        if User.query.filter_by(email=email).first():
+            flash('Email already registered', 'danger')
+            return redirect(url_for('register'))
+        
+        user = User(username=username, email=email, full_name=full_name, user_type='patient')
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        
+        flash('Registration successful! Please log in.', 'success')
+        return redirect(url_for('login'))
+    
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        user = User.query.filter_by(username=username).first()
+        
+        if user and user.check_password(password):
+            session['user_id'] = user.id
+            session['username'] = user.username
+            session['user_type'] = user.user_type
+            flash(f'Welcome back, {user.full_name}!', 'success')
+            
+            if user.user_type == 'admin':
+                return redirect(url_for('admin_dashboard'))
+            else:
+                return redirect(url_for('user_dashboard'))
+        else:
+            flash('Invalid username or password', 'danger')
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash('You have been logged out', 'info')
+    return redirect(url_for('index'))
+
+@app.route('/user-dashboard')
+@login_required
+def user_dashboard():
+    user = User.query.get(session['user_id'])
+    if user.user_type != 'patient':
+        flash('Access denied', 'danger')
+        return redirect(url_for('index'))
+    
+    appointments = Appointment.query.filter_by(user_id=user.id).all()
+    bills = Bill.query.filter_by(user_id=user.id).all()
+    
+    return render_template('user_dashboard.html', user=user, appointments=appointments, bills=bills)
+
+@app.route('/admin-dashboard')
+@admin_required
+def admin_dashboard():
+    total_users = User.query.filter_by(user_type='patient').count()
+    total_appointments = Appointment.query.count()
+    total_bills = Bill.query.count()
+    pending_appointments = Appointment.query.filter_by(status='Pending').count()
+    
+    users = User.query.filter_by(user_type='patient').all()
+    appointments = Appointment.query.all()
+    bills = Bill.query.all()
+    
+    return render_template('admin_dashboard.html',
+                         total_users=total_users,
+                         total_appointments=total_appointments,
+                         total_bills=total_bills,
+                         pending_appointments=pending_appointments,
+                         users=users,
+                         appointments=appointments,
+                         bills=bills)
+
+@app.route('/api/users', methods=['GET'])
+@admin_required
+def api_users():
+    users = User.query.filter_by(user_type='patient').all()
+    return jsonify([{
+        'id': u.id,
+        'username': u.username,
+        'email': u.email,
+        'full_name': u.full_name,
+        'phone': u.phone,
+        'created_at': u.created_at.isoformat()
+    } for u in users])
+
+@app.route('/api/user-profile', methods=['GET', 'PUT'])
+@login_required
+def api_user_profile():
+    user = User.query.get(session['user_id'])
+    
+    if request.method == 'GET':
+        return jsonify({
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'full_name': user.full_name,
+            'phone': user.phone,
+            'date_of_birth': user.date_of_birth.isoformat() if user.date_of_birth else None,
+            'address': user.address,
+            'medical_history': user.medical_history
+        })
+    
+    elif request.method == 'PUT':
+        data = request.get_json()
+        user.full_name = data.get('full_name', user.full_name)
+        user.phone = data.get('phone', user.phone)
+        user.address = data.get('address', user.address)
+        user.medical_history = data.get('medical_history', user.medical_history)
+        
+        if data.get('date_of_birth'):
+            from datetime import datetime as dt
+            user.date_of_birth = dt.fromisoformat(data.get('date_of_birth')).date()
+        
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Profile updated successfully'})
+
+# ==================== MAIN ROUTES ====================
+
 
 @app.route('/')
 def index():
@@ -360,7 +553,12 @@ def api_appointments():
         data = request.get_json()
         appointment_datetime = datetime.fromisoformat(data.get('appointment_date'))
         
+        user_id = None
+        if 'user_id' in session:
+            user_id = session['user_id']
+        
         appointment = Appointment(
+            user_id=user_id,
             patient_name=data.get('patient_name'),
             patient_email=data.get('patient_email'),
             patient_phone=data.get('patient_phone'),
@@ -422,7 +620,12 @@ def api_bills():
         data = request.get_json()
         due_date = datetime.now() + timedelta(days=30)
         
+        user_id = None
+        if 'user_id' in session:
+            user_id = session['user_id']
+        
         bill = Bill(
+            user_id=user_id,
             patient_name=data.get('patient_name'),
             patient_email=data.get('patient_email'),
             service_id=int(data.get('service_id')),
@@ -552,6 +755,17 @@ def init_db():
         if HospitalInfo.query.first() is None:
             hospital = HospitalInfo()
             db.session.add(hospital)
+        
+        # Add default admin user
+        if User.query.filter_by(username='AdminAR@gmail.com').first() is None:
+            admin = User(
+                username='AdminAR@gmail.com',
+                email='AdminAR@gmail.com',
+                full_name='System Administrator',
+                user_type='admin'
+            )
+            admin.set_password('AshishRajesh')
+            db.session.add(admin)
         
         # Add sample doctors
         if Doctor.query.count() == 0:

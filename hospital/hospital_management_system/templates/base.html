@@ -25,6 +25,24 @@
                 <li><a href="/services" class="nav-link">Services</a></li>
                 <li><a href="/appointments" class="nav-link">Appointments</a></li>
                 <li><a href="/bills" class="nav-link">Billing</a></li>
+                {% if session.get('user_id') %}
+                    <li class="user-menu-item">
+                        <a href="#" class="nav-link user-menu-toggle">
+                            <i class="fas fa-user-circle"></i> {{ session.get('username') }}
+                        </a>
+                        <ul class="user-submenu">
+                            {% if session.get('user_type') == 'admin' %}
+                                <li><a href="{{ url_for('admin_dashboard') }}"><i class="fas fa-lock"></i> Admin Dashboard</a></li>
+                            {% else %}
+                                <li><a href="{{ url_for('user_dashboard') }}"><i class="fas fa-dashboard"></i> My Dashboard</a></li>
+                            {% endif %}
+                            <li><a href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+                        </ul>
+                    </li>
+                {% else %}
+                    <li><a href="{{ url_for('login') }}" class="nav-link btn-login">Login</a></li>
+                    <li><a href="{{ url_for('register') }}" class="nav-link btn-register">Register</a></li>
+                {% endif %}
             </ul>
             <div class="search-container">
                 <input type="text" id="searchInput" placeholder="Search..." class="search-input">
@@ -87,5 +105,95 @@
 
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     {% block extra_js %}{% endblock %}
+    
+    <style>
+        /* User Menu Styling */
+        .user-menu-item {
+            position: relative;
+        }
+        
+        .user-submenu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            min-width: 180px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            z-index: 1000;
+        }
+        
+        .user-menu-item:hover .user-submenu {
+            display: block;
+        }
+        
+        .user-submenu li {
+            margin: 0;
+        }
+        
+        .user-submenu li a {
+            display: block;
+            padding: 10px 15px;
+            color: #333;
+            text-decoration: none;
+            transition: all 0.3s;
+        }
+        
+        .user-submenu li a:hover {
+            background: #f5f5f5;
+            padding-left: 20px;
+        }
+        
+        .user-submenu li a i {
+            margin-right: 8px;
+            width: 16px;
+        }
+        
+        /* Login/Register Button Styling */
+        .btn-login {
+            color: white !important;
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%) !important;
+            border: none !important;
+            padding: 10px 18px !important;
+            border-radius: 6px;
+            font-weight: 600;
+            transition: all 0.3s ease !important;
+            box-shadow: 0 4px 15px rgba(0, 123, 255, 0.2);
+            display: inline-block;
+            margin-left: 8px;
+        }
+        
+        .btn-login:hover {
+            background: linear-gradient(135deg, #0056b3 0%, #003f87 100%) !important;
+            color: white !important;
+            box-shadow: 0 6px 20px rgba(0, 123, 255, 0.35);
+            transform: translateY(-2px);
+        }
+        
+        .btn-register {
+            color: white !important;
+            background: linear-gradient(135deg, #28a745 0%, #218838 100%) !important;
+            border: none !important;
+            padding: 10px 18px !important;
+            border-radius: 6px;
+            font-weight: 600;
+            transition: all 0.3s ease !important;
+            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.2);
+            display: inline-block;
+            margin-left: 8px;
+        }
+        
+        .btn-register:hover {
+            background: linear-gradient(135deg, #218838 0%, #1e7e34 100%) !important;
+            color: white !important;
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.35);
+            transform: translateY(-2px);
+        }
+    </style>
 </body>
 </html>
