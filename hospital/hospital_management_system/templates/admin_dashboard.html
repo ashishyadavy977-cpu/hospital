@@ -145,6 +145,7 @@
                                     <th>Date & Time</th>
                                     <th>Reason</th>
                                     <th>Status</th>
+                                    <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -155,6 +156,15 @@
                                         <td>{{ appointment.appointment_date.strftime('%Y-%m-%d %H:%M') }}</td>
                                         <td>{{ appointment.reason or 'N/A' }}</td>
                                         <td><span class="status-badge status-{{ appointment.status.lower() }}">{{ appointment.status }}</span></td>
+                                        <td>
+                                            {% if appointment.status == 'Pending' %}
+                                                <form method="POST" action="{{ url_for('confirm_appointment', appointment_id=appointment.id) }}" class="inline-action-form">
+                                                    <button type="submit" class="btn btn-success">Accept</button>
+                                                </form>
+                                            {% else %}
+                                                <span class="empty-action">-</span>
+                                            {% endif %}
+                                        </td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
@@ -444,6 +454,16 @@ table tbody tr:hover {
 .status-confirmed {
     background: #d1ecf1;
     color: #0c5460;
+}
+
+.inline-action-form {
+    display: inline;
+    margin: 0;
+}
+
+.empty-action {
+    color: #999;
+    font-weight: 600;
 }
 
 .empty-message {

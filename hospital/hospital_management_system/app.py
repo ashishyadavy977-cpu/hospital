@@ -606,6 +606,19 @@ def api_appointment_detail(appointment_id):
         'status': appointment.status
     })
 
+@app.route('/admin/appointments/<int:appointment_id>/confirm', methods=['POST'])
+@admin_required
+def confirm_appointment(appointment_id):
+    appointment = Appointment.query.get(appointment_id)
+    if not appointment:
+        flash('Appointment not found', 'danger')
+        return redirect(url_for('admin_dashboard', _anchor='appointments'))
+
+    appointment.status = 'Confirmed'
+    db.session.commit()
+    flash(f'Appointment #{appointment.id} confirmed successfully', 'success')
+    return redirect(url_for('admin_dashboard', _anchor='appointments'))
+
 # ==================== BILLING ====================
 
 @app.route('/bills')
@@ -756,16 +769,29 @@ def init_db():
             hospital = HospitalInfo()
             db.session.add(hospital)
         
-        # Add default admin user
-        if User.query.filter_by(username='AdminAR@gmail.com').first() is None:
+        # Add or refresh default admin user
+        admin_username = 'ashishyadav977'
+        admin_password = 'ashish2004'
+        admin_email = 'ashishyadav977@hospital.com'
+        admin = User.query.filter_by(username=admin_username).first()
+        if admin is None:
+            admin = User.query.filter_by(user_type='admin').first()
+
+        if admin is None:
             admin = User(
-                username='AdminAR@gmail.com',
-                email='AdminAR@gmail.com',
+                username=admin_username,
+                email=admin_email,
                 full_name='System Administrator',
                 user_type='admin'
             )
-            admin.set_password('AshishRajesh')
+            admin.set_password(admin_password)
             db.session.add(admin)
+        else:
+            admin.username = admin_username
+            admin.email = admin_email
+            admin.full_name = 'System Administrator'
+            admin.user_type = 'admin'
+            admin.set_password(admin_password)
         
         # Add sample doctors
         if Doctor.query.count() == 0:
