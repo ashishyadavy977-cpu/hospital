@@ -107,20 +107,69 @@ hospital_management_system/
 
 ### Step 1: Clone or Download the Project
 ```bash
-cd hospital_management_system
+cd /workspaces/hospital
 ```
 
 ### Step 2: Install Dependencies
 ```bash
-pip install -r requirements.txt
+pip install -r hospital/hospital_management_system/requirements.txt
 ```
 
 ### Step 3: Run the Application
 ```bash
-python app.py
+python run.py
 ```
 
 The application will start at: `http://localhost:5000`
+
+## Login Accounts
+
+### Default Admin
+Use the dedicated Admin Login page:
+
+```text
+URL: http://localhost:5000/admin-login
+Username: ashishyadav977
+Password: ashish2004
+```
+
+Change this password immediately in production using **Change Password**. These credentials are development defaults from `app.py`.
+
+### Patient Account
+Create a patient account at:
+
+```text
+http://localhost:5000/register
+```
+
+The patient chooses their own username, email, and password during registration. Patient passwords are not stored in this README.
+
+### Permissions
+- **Admin**: manage doctors, staff, services, bills, medical records, prescriptions, service requests, reports, and appointment statuses.
+- **Patient**: view hospital data, book appointments, request services, view bills, pay eligible bills, view medical records and prescriptions, and update their profile.
+
+### Running Directly From the Application Directory
+If you are already inside `/workspaces/hospital`, enter the application directory first:
+```bash
+cd hospital/hospital_management_system
+pip install -r requirements.txt
+python app.py
+```
+
+## Main Pages
+
+- `/` - Home page
+- `/admin-login` - Admin login
+- `/login` - Patient login
+- `/register` - Patient registration
+- `/admin-dashboard` - Admin management dashboard
+- `/admin-reports` - Admin charts and reports
+- `/services` - Service catalog and patient service requests
+- `/appointments` - Book appointments
+- `/calendar` - Authenticated appointment calendar
+- `/user-dashboard` - Patient dashboard
+- `/forgot-password` - Password reset link flow
+- `/change-password` - Change current password
 
 ## Database
 
@@ -172,6 +221,21 @@ The application will start at: `http://localhost:5000`
 - `GET /api/bills/<id>` - Get bill details
 - `PUT /api/bills/<id>` - Update bill status
 - `DELETE /api/bills/<id>` - Delete bill
+- `POST /api/bills/<id>/pay` - Pay an eligible bill through the local demo payment flow
+
+### Patient Services
+- `GET /api/service-requests` - List the current patient's requests or all requests for admin
+- `POST /api/service-requests` - Submit a service request as a patient
+- `PUT /api/service-requests/<id>` - Update request status as admin
+
+### Medical Records and Prescriptions
+- `GET /api/medical-records` - View patient records or all records as admin
+- `POST /api/medical-records` - Add a patient record as admin
+- `GET /api/prescriptions` - View patient prescriptions or all prescriptions as admin
+- `POST /api/prescriptions` - Add a prescription as admin
+
+### Notifications
+- `GET /api/notifications` - View in-app notifications for the logged-in user
 
 ### Ratings
 - `GET /api/ratings` - Get all ratings

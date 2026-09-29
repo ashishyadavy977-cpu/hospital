@@ -12,10 +12,13 @@
     <section class="doctors-management">
         <div class="management-header">
             <h2>Manage Doctors</h2>
+            {% if session.get('user_type') == 'admin' %}
             <button class="btn btn-primary" id="addDoctorBtn">+ Add Doctor</button>
+            {% endif %}
         </div>
 
         <!-- Add/Edit Doctor Modal -->
+        {% if session.get('user_type') == 'admin' %}
         <div id="doctorModal" class="modal">
             <div class="modal-content">
                 <span class="close">&times;</span>
@@ -53,6 +56,7 @@
                 </form>
             </div>
         </div>
+        {% endif %}
 
         <!-- Doctors List -->
         <div class="doctors-grid" id="doctorsGrid">
@@ -62,6 +66,7 @@
 </div>
 
 <!-- Edit Modal (hidden by default) -->
+{% if session.get('user_type') == 'admin' %}
 <div id="editDoctorModal" class="modal" style="display:none;">
     <div class="modal-content">
         <span class="close">&times;</span>
@@ -100,12 +105,17 @@
         </form>
     </div>
 </div>
+{% endif %}
 
 <script>
+const isAdmin = {{ 'true' if session.get('user_type') == 'admin' else 'false' }};
+
 document.addEventListener('DOMContentLoaded', function() {
     loadDoctors();
-    setupDoctorForm();
-    setupModal();
+    if (isAdmin) {
+        setupDoctorForm();
+        setupModal();
+    }
 });
 
 function loadDoctors() {
@@ -118,6 +128,10 @@ function loadDoctors() {
                 const imageUrl = doctor.image ? `/static/images/${doctor.image}` : '/static/images/doctor-placeholder.jpg';
                 const card = document.createElement('div');
                 card.className = 'doctor-card-large';
+                const managementActions = isAdmin ? `
+                            <button class="btn btn-secondary" onclick="editDoctor(${doctor.id})">Edit</button>
+                            <button class="btn btn-danger" onclick="deleteDoctor(${doctor.id})">Delete</button>
+                        ` : '';
                 card.innerHTML = `
                     <div class="doctor-card-image">
                         <img src="${imageUrl}" alt="${doctor.name}">
@@ -132,8 +146,7 @@ function loadDoctors() {
                             <p><i class="fas fa-envelope"></i> ${doctor.email}</p>
                         </div>
                         <div class="doctor-actions">
-                            <button class="btn btn-secondary" onclick="editDoctor(${doctor.id})">Edit</button>
-                            <button class="btn btn-danger" onclick="deleteDoctor(${doctor.id})">Delete</button>
+                            ${managementActions}
                             <a href="/appointments" class="btn btn-primary">Book Appointment</a>
                         </div>
                     </div>

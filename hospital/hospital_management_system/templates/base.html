@@ -24,6 +24,7 @@
                 <li><a href="/staff" class="nav-link">Staff</a></li>
                 <li><a href="/services" class="nav-link">Services</a></li>
                 <li><a href="/appointments" class="nav-link">Appointments</a></li>
+                {% if session.get('user_id') %}<li><a href="{{ url_for('calendar_page') }}" class="nav-link">Calendar</a></li>{% endif %}
                 <li><a href="/bills" class="nav-link">Billing</a></li>
                 {% if session.get('user_id') %}
                     <li class="user-menu-item">
@@ -33,9 +34,11 @@
                         <ul class="user-submenu">
                             {% if session.get('user_type') == 'admin' %}
                                 <li><a href="{{ url_for('admin_dashboard') }}"><i class="fas fa-lock"></i> Admin Dashboard</a></li>
+                                <li><a href="{{ url_for('admin_reports') }}"><i class="fas fa-chart-bar"></i> Reports</a></li>
                             {% else %}
                                 <li><a href="{{ url_for('user_dashboard') }}"><i class="fas fa-dashboard"></i> My Dashboard</a></li>
                             {% endif %}
+                            <li><a href="{{ url_for('change_password') }}"><i class="fas fa-key"></i> Change Password</a></li>
                             <li><a href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
                         </ul>
                     </li>

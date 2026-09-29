@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import os
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from functools import wraps
 import json
 
@@ -91,6 +92,43 @@ class Bill(db.Model):
     service = db.relationship('Service', backref='bills')
     appointment = db.relationship('Appointment', backref='bills')
 
+class ServiceRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    service_id = db.Column(db.Integer, db.ForeignKey('service.id'), nullable=False)
+    requested_date = db.Column(db.DateTime, nullable=False)
+    reason = db.Column(db.Text)
+    status = db.Column(db.String(20), default='Pending')
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    user = db.relationship('User', backref='service_requests')
+    service = db.relationship('Service', backref='service_requests')
+
+class MedicalRecord(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    title = db.Column(db.String(150), nullable=False)
+    diagnosis = db.Column(db.Text)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    patient = db.relationship('User', backref='medical_records')
+
+class Prescription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    medicine = db.Column(db.String(150), nullable=False)
+    dosage = db.Column(db.String(100), nullable=False)
+    instructions = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    patient = db.relationship('User', backref='prescriptions')
+
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    message = db.Column(db.String(255), nullable=False)
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    user = db.relationship('User', backref='notifications')
+
 class Rating(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     patient_name = db.Column(db.String(100), nullable=False)
@@ -145,6 +183,14 @@ def admin_required(f):
             return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated_function
+
+def admin_api_required():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Authentication required'}), 401
+    user = User.query.get(session['user_id'])
+    if not user or user.user_type != 'admin':
+        return jsonify({'error': 'Admin access required'}), 403
+    return None
 
 # ==================== ROUTES ====================
 
@@ -206,7 +252,77 @@ def login():
         else:
             flash('Invalid username or password', 'danger')
     
-    return render_template('login.html')
+    return render_template('login.html', admin_login=False)
+
+@app.route('/admin-login', methods=['GET', 'POST'])
+def admin_login():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        user = User.query.filter_by(username=username, user_type='admin').first()
+
+        if user and user.check_password(password):
+            session['user_id'] = user.id
+            session['username'] = user.username
+            session['user_type'] = user.user_type
+            flash(f'Welcome back, {user.full_name}!', 'success')
+            return redirect(url_for('admin_dashboard'))
+
+        flash('Invalid admin credentials', 'danger')
+
+    return render_template('login.html', admin_login=True)
+
+@app.route('/change-password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    user = User.query.get(session['user_id'])
+    if request.method == 'POST':
+        current = request.form.get('current_password')
+        new_password = request.form.get('new_password')
+        confirmation = request.form.get('confirm_password')
+        if not user.check_password(current or ''):
+            flash('Current password is incorrect', 'danger')
+        elif len(new_password or '') < 6 or new_password != confirmation:
+            flash('New passwords must match and contain at least 6 characters', 'danger')
+        else:
+            user.set_password(new_password)
+            db.session.commit()
+            flash('Password changed successfully', 'success')
+            return redirect(url_for('user_dashboard' if user.user_type == 'patient' else 'admin_dashboard'))
+    return render_template('change_password.html')
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    reset_link = None
+    if request.method == 'POST':
+        user = User.query.filter_by(email=request.form.get('email')).first()
+        if user:
+            serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])
+            token = serializer.dumps(user.id, salt='password-reset')
+            reset_link = url_for('reset_password', token=token, _external=True)
+        else:
+            flash('If that email exists, a reset link has been generated.', 'info')
+    return render_template('forgot_password.html', reset_link=reset_link)
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    serializer = URLSafeTimedSerializer(app.config['SECRET_KEY'])
+    try:
+        user_id = serializer.loads(token, salt='password-reset', max_age=1800)
+    except (BadSignature, SignatureExpired):
+        flash('This password reset link is invalid or expired.', 'danger')
+        return redirect(url_for('forgot_password'))
+    user = User.query.get(user_id)
+    if request.method == 'POST':
+        password = request.form.get('password')
+        if len(password or '') < 6 or password != request.form.get('confirm_password'):
+            flash('Passwords must match and contain at least 6 characters', 'danger')
+        else:
+            user.set_password(password)
+            db.session.commit()
+            flash('Password reset successfully. Please log in.', 'success')
+            return redirect(url_for('login'))
+    return render_template('reset_password.html')
 
 @app.route('/logout')
 def logout():
@@ -224,8 +340,11 @@ def user_dashboard():
     
     appointments = Appointment.query.filter_by(user_id=user.id).all()
     bills = Bill.query.filter_by(user_id=user.id).all()
+    service_requests = ServiceRequest.query.filter_by(user_id=user.id).order_by(ServiceRequest.created_at.desc()).all()
+    medical_records = MedicalRecord.query.filter_by(patient_id=user.id).order_by(MedicalRecord.created_at.desc()).all()
+    prescriptions = Prescription.query.filter_by(patient_id=user.id).order_by(Prescription.created_at.desc()).all()
     
-    return render_template('user_dashboard.html', user=user, appointments=appointments, bills=bills)
+    return render_template('user_dashboard.html', user=user, appointments=appointments, bills=bills, service_requests=service_requests, medical_records=medical_records, prescriptions=prescriptions)
 
 @app.route('/admin-dashboard')
 @admin_required
@@ -238,6 +357,7 @@ def admin_dashboard():
     users = User.query.filter_by(user_type='patient').all()
     appointments = Appointment.query.all()
     bills = Bill.query.all()
+    service_requests = ServiceRequest.query.order_by(ServiceRequest.created_at.desc()).all()
     
     return render_template('admin_dashboard.html',
                          total_users=total_users,
@@ -246,7 +366,8 @@ def admin_dashboard():
                          pending_appointments=pending_appointments,
                          users=users,
                          appointments=appointments,
-                         bills=bills)
+                         bills=bills,
+                         service_requests=service_requests)
 
 @app.route('/api/users', methods=['GET'])
 @admin_required
@@ -322,6 +443,9 @@ def hospital_info():
 @app.route('/api/hospital-info', methods=['GET', 'POST'])
 def api_hospital_info():
     if request.method == 'POST':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
         hospital = HospitalInfo.query.first()
         if not hospital:
             hospital = HospitalInfo()
@@ -363,6 +487,9 @@ def doctors():
 @app.route('/api/doctors', methods=['GET', 'POST'])
 def api_doctors():
     if request.method == 'POST':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
         name = request.form.get('name')
         specialization = request.form.get('specialization')
         experience = request.form.get('experience')
@@ -422,6 +549,9 @@ def api_doctor_detail(doctor_id):
         })
     
     elif request.method == 'PUT':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
         doctor.name = request.form.get('name', doctor.name)
         doctor.specialization = request.form.get('specialization', doctor.specialization)
         doctor.experience = int(request.form.get('experience', doctor.experience))
@@ -440,6 +570,9 @@ def api_doctor_detail(doctor_id):
         return jsonify({'success': True, 'message': 'Doctor updated'})
     
     elif request.method == 'DELETE':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
         db.session.delete(doctor)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Doctor deleted'})
@@ -454,11 +587,17 @@ def staff_page():
 @app.route('/api/staff', methods=['GET', 'POST'])
 def api_staff():
     if request.method == 'POST':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
         name = request.form.get('name')
         position = request.form.get('position')
         department = request.form.get('department')
         phone = request.form.get('phone')
         email = request.form.get('email')
+
+        if not all([name, position, department]):
+            return jsonify({'success': False, 'message': 'Name, position, and department are required'}), 400
         
         image = None
         if 'image' in request.files:
@@ -501,6 +640,9 @@ def services_page():
 @app.route('/api/services', methods=['GET', 'POST'])
 def api_services():
     if request.method == 'POST':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
         data = request.get_json()
         service = Service(
             name=data.get('name'),
@@ -521,6 +663,117 @@ def api_services():
         'category': s.category
     } for s in services])
 
+@app.route('/api/service-requests', methods=['GET', 'POST'])
+@login_required
+def api_service_requests():
+    user = User.query.get(session['user_id'])
+
+    if request.method == 'POST':
+        if user.user_type != 'patient':
+            return jsonify({'error': 'Only patients can request services'}), 403
+        data = request.get_json() or {}
+        service = Service.query.get(data.get('service_id'))
+        requested_date = data.get('requested_date')
+        if not service or not requested_date:
+            return jsonify({'success': False, 'message': 'Service and requested date are required'}), 400
+        try:
+            requested_datetime = datetime.fromisoformat(requested_date)
+        except ValueError:
+            return jsonify({'success': False, 'message': 'Invalid requested date'}), 400
+        if requested_datetime < datetime.now():
+            return jsonify({'success': False, 'message': 'Requested date must be in the future'}), 400
+
+        service_request = ServiceRequest(
+            user_id=user.id,
+            service_id=service.id,
+            requested_date=requested_datetime,
+            reason=data.get('reason')
+        )
+        db.session.add(service_request)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Service request submitted', 'id': service_request.id})
+
+    requests = ServiceRequest.query.all() if user.user_type == 'admin' else ServiceRequest.query.filter_by(user_id=user.id).all()
+    return jsonify([{
+        'id': item.id,
+        'service': item.service.name,
+        'requested_date': item.requested_date.isoformat(),
+        'reason': item.reason,
+        'status': item.status
+    } for item in requests])
+
+@app.route('/api/service-requests/<int:request_id>', methods=['PUT'])
+@admin_required
+def update_service_request(request_id):
+    service_request = ServiceRequest.query.get(request_id)
+    if not service_request:
+        return jsonify({'error': 'Service request not found'}), 404
+    status = (request.get_json() or {}).get('status')
+    if status not in {'Pending', 'Approved', 'Completed', 'Cancelled'}:
+        return jsonify({'error': 'Invalid request status'}), 400
+    service_request.status = status
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Service request updated'})
+
+@app.route('/api/medical-records', methods=['GET', 'POST'])
+@login_required
+def api_medical_records():
+    user = User.query.get(session['user_id'])
+    if request.method == 'POST':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
+        data = request.get_json() or {}
+        patient_id = data.get('patient_id')
+        patient = User.query.get(patient_id) if patient_id else None
+        if not patient or patient.user_type != 'patient' or not data.get('title'):
+            return jsonify({'error': 'Patient and record title are required'}), 400
+        record = MedicalRecord(patient_id=patient.id, title=data['title'], diagnosis=data.get('diagnosis'), notes=data.get('notes'))
+        db.session.add(record)
+        db.session.commit()
+        return jsonify({'success': True, 'id': record.id})
+    records = MedicalRecord.query.all() if user.user_type == 'admin' else MedicalRecord.query.filter_by(patient_id=user.id).all()
+    return jsonify([{'id': r.id, 'patient_id': r.patient_id, 'title': r.title, 'diagnosis': r.diagnosis, 'notes': r.notes, 'created_at': r.created_at.isoformat()} for r in records])
+
+@app.route('/api/prescriptions', methods=['GET', 'POST'])
+@login_required
+def api_prescriptions():
+    user = User.query.get(session['user_id'])
+    if request.method == 'POST':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
+        data = request.get_json() or {}
+        patient_id = data.get('patient_id')
+        patient = User.query.get(patient_id) if patient_id else None
+        if not patient or patient.user_type != 'patient' or not data.get('medicine') or not data.get('dosage'):
+            return jsonify({'error': 'Patient, medicine, and dosage are required'}), 400
+        prescription = Prescription(patient_id=patient.id, medicine=data['medicine'], dosage=data['dosage'], instructions=data.get('instructions'))
+        db.session.add(prescription)
+        db.session.commit()
+        return jsonify({'success': True, 'id': prescription.id})
+    records = Prescription.query.all() if user.user_type == 'admin' else Prescription.query.filter_by(patient_id=user.id).all()
+    return jsonify([{'id': p.id, 'patient_id': p.patient_id, 'medicine': p.medicine, 'dosage': p.dosage, 'instructions': p.instructions, 'created_at': p.created_at.isoformat()} for p in records])
+
+@app.route('/api/notifications')
+@login_required
+def api_notifications():
+    notifications = Notification.query.filter_by(user_id=session['user_id']).order_by(Notification.created_at.desc()).all()
+    return jsonify([{'id': n.id, 'message': n.message, 'is_read': n.is_read, 'created_at': n.created_at.isoformat()} for n in notifications])
+
+@app.route('/api/bills/<int:bill_id>/pay', methods=['POST'])
+@login_required
+def pay_bill(bill_id):
+    bill = Bill.query.get(bill_id)
+    if not bill:
+        return jsonify({'error': 'Bill not found'}), 404
+    if bill.user_id != session['user_id'] and session.get('user_type') != 'admin':
+        return jsonify({'error': 'Access denied'}), 403
+    bill.status = 'Paid'
+    db.session.add(Notification(user_id=bill.user_id, message=f'Bill #{bill.id} was paid successfully.'))
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Payment completed'})
+
 @app.route('/api/services/<int:service_id>', methods=['GET', 'DELETE'])
 def api_service_detail(service_id):
     service = Service.query.get(service_id)
@@ -528,6 +781,9 @@ def api_service_detail(service_id):
         return jsonify({'error': 'Service not found'}), 404
     
     if request.method == 'DELETE':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
         db.session.delete(service)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Service deleted'})
@@ -546,6 +802,24 @@ def api_service_detail(service_id):
 def appointments_page():
     doctors = Doctor.query.all()
     return render_template('appointments.html', doctors=doctors)
+
+@app.route('/calendar')
+@login_required
+def calendar_page():
+    appointments = Appointment.query.all() if session.get('user_type') == 'admin' else Appointment.query.filter_by(user_id=session['user_id']).all()
+    return render_template('calendar.html', appointments=appointments)
+
+@app.route('/admin-reports')
+@admin_required
+def admin_reports():
+    return render_template('admin_reports.html',
+                           total_users=User.query.filter_by(user_type='patient').count(),
+                           total_doctors=Doctor.query.count(),
+                           total_services=Service.query.count(),
+                           total_appointments=Appointment.query.count(),
+                           total_bills=Bill.query.count(),
+                           pending_bills=Bill.query.filter_by(status='Pending').count(),
+                           paid_bills=Bill.query.filter_by(status='Paid').count())
 
 @app.route('/api/appointments', methods=['GET', 'POST'])
 def api_appointments():
@@ -588,12 +862,18 @@ def api_appointment_detail(appointment_id):
         return jsonify({'error': 'Appointment not found'}), 404
     
     if request.method == 'PUT':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
         data = request.get_json()
         appointment.status = data.get('status', appointment.status)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Appointment updated'})
     
     elif request.method == 'DELETE':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
         db.session.delete(appointment)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Appointment deleted'})
@@ -623,13 +903,16 @@ def confirm_appointment(appointment_id):
 
 @app.route('/bills')
 def bills_page():
-    bills = Bill.query.all()
+    bills = Bill.query.filter_by(user_id=session['user_id']).all() if session.get('user_type') == 'patient' else Bill.query.all()
     services = Service.query.all()
     return render_template('bills.html', bills=bills, services=services)
 
 @app.route('/api/bills', methods=['GET', 'POST'])
 def api_bills():
     if request.method == 'POST':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
         data = request.get_json()
         due_date = datetime.now() + timedelta(days=30)
         
@@ -650,7 +933,7 @@ def api_bills():
         db.session.commit()
         return jsonify({'success': True, 'message': 'Bill created', 'id': bill.id})
     
-    bills = Bill.query.all()
+    bills = Bill.query.filter_by(user_id=session['user_id']).all() if session.get('user_type') == 'patient' else Bill.query.all()
     return jsonify([{
         'id': b.id,
         'patient_name': b.patient_name,
@@ -667,12 +950,18 @@ def api_bill_detail(bill_id):
         return jsonify({'error': 'Bill not found'}), 404
     
     if request.method == 'PUT':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
         data = request.get_json()
         bill.status = data.get('status', bill.status)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Bill updated'})
     
     elif request.method == 'DELETE':
+        access_error = admin_api_required()
+        if access_error:
+            return access_error
         db.session.delete(bill)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Bill deleted'})

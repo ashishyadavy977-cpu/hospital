@@ -88,6 +88,8 @@
 </div>
 
 <script>
+const isAdmin = {{ 'true' if session.get('user_type') == 'admin' else 'false' }};
+
 document.addEventListener('DOMContentLoaded', function() {
     loadDoctors();
     loadAppointments();
@@ -123,6 +125,10 @@ function loadAppointments() {
                 const date = new Date(appointment.appointment_date);
                 const formattedDate = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
                 const tr = document.createElement('tr');
+                const managementActions = isAdmin ? `
+                        <button class="btn btn-small btn-warning" onclick="updateAppointmentStatus(${appointment.id})">Update</button>
+                        <button class="btn btn-small btn-danger" onclick="deleteAppointment(${appointment.id})">Cancel</button>
+                    ` : '<span class="read-only-label">View only</span>';
                 tr.innerHTML = `
                     <td>#${appointment.id}</td>
                     <td>${appointment.patient_name}</td>
@@ -130,8 +136,7 @@ function loadAppointments() {
                     <td>${formattedDate}</td>
                     <td><span class="status status-${appointment.status.toLowerCase()}">${appointment.status}</span></td>
                     <td>
-                        <button class="btn btn-small btn-warning" onclick="updateAppointmentStatus(${appointment.id})">Update</button>
-                        <button class="btn btn-small btn-danger" onclick="deleteAppointment(${appointment.id})">Cancel</button>
+                        ${managementActions}
                     </td>
                 `;
                 tbody.appendChild(tr);

@@ -12,14 +12,18 @@
     <section class="staff-management">
         <div class="management-header">
             <h2>Manage Staff</h2>
+            {% if session.get('user_type') == 'admin' %}
             <button class="btn btn-primary" id="addStaffBtn">+ Add Staff Member</button>
+            {% endif %}
         </div>
 
         <!-- Add Staff Modal -->
+        {% if session.get('user_type') == 'admin' %}
         <div id="staffModal" class="modal">
             <div class="modal-content">
                 <span class="close">&times;</span>
                 <h2>Add New Staff Member</h2>
+                <div id="staffFormMessage" class="alert" role="status" hidden></div>
                 <form id="staffForm" enctype="multipart/form-data">
                     <div class="form-group">
                         <label>Full Name:</label>
@@ -49,6 +53,7 @@
                 </form>
             </div>
         </div>
+        {% endif %}
 
         <!-- Staff Grid -->
         <div class="staff-grid" id="staffGrid">
@@ -58,10 +63,14 @@
 </div>
 
 <script>
+const isAdmin = {{ 'true' if session.get('user_type') == 'admin' else 'false' }};
+
 document.addEventListener('DOMContentLoaded', function() {
     loadStaff();
-    setupStaffForm();
-    setupStaffModal();
+    if (isAdmin) {
+        setupStaffForm();
+        setupStaffModal();
+    }
 });
 
 function loadStaff() {
@@ -108,16 +117,33 @@ function setupStaffForm() {
             formData.append('image', document.getElementById('staffImage').files[0]);
         }
         
+        const submitButton = document.querySelector('#staffForm button[type="submit"]');
+        submitButton.disabled = true;
+
         fetch('/api/staff', {
             method: 'POST',
             body: formData
         })
-        .then(response => response.json())
-        .then(data => {
-            alert('Staff member added successfully!');
+        .then(async response => {
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.message || 'Unable to add staff member.');
+            }
+            return data;
+        })
+        .then(() => {
             document.getElementById('staffModal').style.display = 'none';
             document.getElementById('staffForm').reset();
             loadStaff();
+        })
+        .catch(error => {
+            const message = document.getElementById('staffFormMessage');
+            message.textContent = error.message;
+            message.className = 'alert alert-danger';
+            message.hidden = false;
+        })
+        .finally(() => {
+            submitButton.disabled = false;
         });
     });
 }

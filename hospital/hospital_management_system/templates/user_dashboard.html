@@ -32,6 +32,15 @@
                 <li><a href="#bills" class="menu-link" onclick="showSection('bills')">
                     <i class="fas fa-file-invoice-dollar"></i> My Bills
                 </a></li>
+                <li><a href="#service-requests" class="menu-link" onclick="showSection('service-requests')">
+                    <i class="fas fa-hand-holding-medical"></i> Service Requests
+                </a></li>
+                <li><a href="#medical-records" class="menu-link" onclick="showSection('medical-records')">
+                    <i class="fas fa-file-medical"></i> Medical Records
+                </a></li>
+                <li><a href="#prescriptions" class="menu-link" onclick="showSection('prescriptions')">
+                    <i class="fas fa-pills"></i> Prescriptions
+                </a></li>
                 <li><a href="#profile" class="menu-link" onclick="showSection('profile')">
                     <i class="fas fa-user"></i> My Profile
                 </a></li>
@@ -141,9 +150,51 @@
             </section>
             
             <!-- Profile Section -->
+            <section id="service-requests" class="dashboard-section">
+                <h2>My Service Requests</h2>
+                {% if service_requests %}
+                    <div class="appointments-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Service</th>
+                                    <th>Requested Date</th>
+                                    <th>Reason</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for service_request in service_requests %}
+                                    <tr>
+                                        <td>{{ service_request.service.name }}</td>
+                                        <td>{{ service_request.requested_date.strftime('%Y-%m-%d %H:%M') }}</td>
+                                        <td>{{ service_request.reason or 'N/A' }}</td>
+                                        <td><span class="status-badge status-{{ service_request.status.lower() }}">{{ service_request.status }}</span></td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="empty-message">You have not requested any services yet. <a href="{{ url_for('services_page') }}">Browse services</a></p>
+                {% endif %}
+            </section>
+
+            <!-- Profile Section -->
+            <section id="medical-records" class="dashboard-section">
+                <h2>Medical Records</h2>
+                {% if medical_records %}<div class="appointments-table"><table><thead><tr><th>Title</th><th>Diagnosis</th><th>Notes</th><th>Date</th></tr></thead><tbody>{% for record in medical_records %}<tr><td>{{ record.title }}</td><td>{{ record.diagnosis or 'N/A' }}</td><td>{{ record.notes or 'N/A' }}</td><td>{{ record.created_at.strftime('%Y-%m-%d') }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty-message">No medical records available.</p>{% endif %}
+            </section>
+
+            <section id="prescriptions" class="dashboard-section">
+                <h2>Prescriptions</h2>
+                {% if prescriptions %}<div class="appointments-table"><table><thead><tr><th>Medicine</th><th>Dosage</th><th>Instructions</th><th>Date</th></tr></thead><tbody>{% for prescription in prescriptions %}<tr><td>{{ prescription.medicine }}</td><td>{{ prescription.dosage }}</td><td>{{ prescription.instructions or 'N/A' }}</td><td>{{ prescription.created_at.strftime('%Y-%m-%d') }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty-message">No prescriptions available.</p>{% endif %}
+            </section>
+
+            <!-- Profile Section -->
             <section id="profile" class="dashboard-section">
                 <h2>My Profile</h2>
-                <div class="profile-form">
+                <div id="profile-view" class="profile-form">
                     <div class="form-group">
                         <label>Full Name:</label>
                         <p>{{ user.full_name }}</p>
@@ -172,8 +223,35 @@
                         <label>Medical History:</label>
                         <p>{{ user.medical_history or 'Not provided' }}</p>
                     </div>
-                    <button class="btn btn-primary" onclick="editProfile()">Edit Profile</button>
+                    <button class="btn btn-primary" type="button" onclick="editProfile()">Edit Profile</button>
                 </div>
+                <form id="profile-edit" class="profile-form profile-edit-form" hidden>
+                    <div id="profile-message" class="alert" role="status" hidden></div>
+                    <div class="form-group">
+                        <label for="edit-full-name">Full Name</label>
+                        <input id="edit-full-name" name="full_name" type="text" value="{{ user.full_name }}" required maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-phone">Phone</label>
+                        <input id="edit-phone" name="phone" type="tel" value="{{ user.phone or '' }}" maxlength="20">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-date-of-birth">Date of Birth</label>
+                        <input id="edit-date-of-birth" name="date_of_birth" type="date" value="{{ user.date_of_birth.isoformat() if user.date_of_birth else '' }}">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-address">Address</label>
+                        <textarea id="edit-address" name="address" rows="3">{{ user.address or '' }}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-medical-history">Medical History</label>
+                        <textarea id="edit-medical-history" name="medical_history" rows="4">{{ user.medical_history or '' }}</textarea>
+                    </div>
+                    <div class="profile-actions">
+                        <button class="btn btn-primary" type="submit">Save Changes</button>
+                        <button class="btn btn-secondary" type="button" onclick="cancelProfileEdit()">Cancel</button>
+                    </div>
+                </form>
             </section>
         </div>
     </div>
@@ -405,6 +483,24 @@ table tbody tr:hover {
     border: 1px solid #ddd;
 }
 
+.profile-edit-form input,
+.profile-edit-form textarea {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font: inherit;
+}
+
+.profile-edit-form textarea {
+    resize: vertical;
+}
+
+.profile-actions {
+    display: flex;
+    gap: 10px;
+}
+
 .alert {
     padding: 12px;
     margin-bottom: 20px;
@@ -474,7 +570,57 @@ function showSection(sectionId) {
 }
 
 function editProfile() {
-    alert('Edit profile feature coming soon!');
+    document.getElementById('profile-view').hidden = true;
+    document.getElementById('profile-edit').hidden = false;
+    document.getElementById('edit-full-name').focus();
 }
+
+function cancelProfileEdit() {
+    document.getElementById('profile-edit').hidden = true;
+    document.getElementById('profile-view').hidden = false;
+    clearProfileMessage();
+}
+
+function clearProfileMessage() {
+    const message = document.getElementById('profile-message');
+    message.hidden = true;
+    message.textContent = '';
+    message.className = 'alert';
+}
+
+function showProfileMessage(text, category) {
+    const message = document.getElementById('profile-message');
+    message.textContent = text;
+    message.className = `alert alert-${category}`;
+    message.hidden = false;
+}
+
+document.getElementById('profile-edit').addEventListener('submit', async function(event) {
+    event.preventDefault();
+    clearProfileMessage();
+
+    const form = event.target;
+    const data = Object.fromEntries(new FormData(form).entries());
+    const submitButton = form.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+
+    try {
+        const response = await fetch('{{ url_for("api_user_profile") }}', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || 'Unable to update your profile.');
+        }
+
+        window.location.reload();
+    } catch (error) {
+        showProfileMessage(error.message, 'danger');
+        submitButton.disabled = false;
+    }
+});
 </script>
 {% endblock %}

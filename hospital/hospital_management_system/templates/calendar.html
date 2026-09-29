@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Appointment Calendar - MediCare Hospital{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="page-header"><h1>Appointment Calendar</h1><p>View your scheduled appointments</p></div>
+    <section class="appointments-list-section">
+        {% if appointments %}
+        <div class="appointments-table-wrapper"><table class="appointments-table"><thead><tr><th>Date</th><th>Patient</th><th>Doctor</th><th>Reason</th><th>Status</th></tr></thead><tbody>
+        {% for appointment in appointments %}<tr><td>{{ appointment.appointment_date.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ appointment.patient_name }}</td><td>{{ appointment.doctor.name }}</td><td>{{ appointment.reason or 'N/A' }}</td><td><span class="status status-{{ appointment.status.lower() }}">{{ appointment.status }}</span></td></tr>{% endfor %}
+        </tbody></table></div>
+        {% else %}<p class="empty-message">No appointments scheduled.</p>{% endif %}
+    </section>
+</div>
+{% endblock %}

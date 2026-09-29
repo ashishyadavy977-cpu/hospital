@@ -12,10 +12,13 @@
     <section class="services-management">
         <div class="management-header">
             <h2>Manage Services</h2>
+            {% if session.get('user_type') == 'admin' %}
             <button class="btn btn-primary" id="addServiceBtn">+ Add Service</button>
+            {% endif %}
         </div>
 
         <!-- Add Service Modal -->
+        {% if session.get('user_type') == 'admin' %}
         <div id="serviceModal" class="modal">
             <div class="modal-content">
                 <span class="close">&times;</span>
@@ -50,6 +53,30 @@
                 </form>
             </div>
         </div>
+        {% endif %}
+
+        {% if session.get('user_type') == 'patient' %}
+        <div id="requestServiceModal" class="modal">
+            <div class="modal-content">
+                <span class="close" id="closeRequestService">&times;</span>
+                <h2>Request Service</h2>
+                <p id="requestedServiceName" class="service-description"></p>
+                <form id="requestServiceForm">
+                    <input type="hidden" id="requestedServiceId">
+                    <div class="form-group">
+                        <label for="requestedDate">Preferred Date & Time:</label>
+                        <input type="datetime-local" id="requestedDate" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="requestReason">Reason:</label>
+                        <textarea id="requestReason" rows="3" placeholder="Add any useful details..."></textarea>
+                    </div>
+                    <div id="requestServiceMessage" class="alert" role="status" hidden></div>
+                    <button type="submit" class="btn btn-primary">Submit Request</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- Services List -->
         <div class="services-list" id="servicesList">
@@ -59,10 +86,18 @@
 </div>
 
 <script>
+const isAdmin = {{ 'true' if session.get('user_type') == 'admin' else 'false' }};
+const isPatient = {{ 'true' if session.get('user_type') == 'patient' else 'false' }};
+
 document.addEventListener('DOMContentLoaded', function() {
     loadServices();
-    setupServiceForm();
-    setupServiceModal();
+    if (isAdmin) {
+        setupServiceForm();
+        setupServiceModal();
+    }
+    if (isPatient) {
+        setupServiceRequest();
+    }
 });
 
 function loadServices() {
@@ -92,6 +127,8 @@ function loadServices() {
                 services.forEach(service => {
                     const card = document.createElement('div');
                     card.className = 'service-card-large';
+                    const managementActions = isAdmin ? `<button class="btn btn-danger" onclick="deleteService(${service.id})">Delete</button>` : '';
+                    const patientAction = isPatient ? `<button class="btn btn-primary" onclick="requestService(${service.id}, '${service.name.replace(/'/g, "\\'")}')">Request Service</button>` : '';
                     card.innerHTML = `
                         <div class="service-header">
                             <h4>${service.name}</h4>
@@ -99,7 +136,8 @@ function loadServices() {
                         </div>
                         <p class="service-description">${service.description}</p>
                         <div class="service-actions">
-                            <button class="btn btn-danger" onclick="deleteService(${service.id})">Delete</button>
+                            ${managementActions}
+                            ${patientAction}
                         </div>
                     `;
                     servicesDiv.appendChild(card);
@@ -109,6 +147,56 @@ function loadServices() {
                 list.appendChild(categoryDiv);
             });
         });
+}
+
+function requestService(serviceId, serviceName) {
+    document.getElementById('requestedServiceId').value = serviceId;
+    document.getElementById('requestedServiceName').textContent = serviceName;
+    document.getElementById('requestServiceModal').style.display = 'block';
+}
+
+function setupServiceRequest() {
+    const modal = document.getElementById('requestServiceModal');
+    const minimumDate = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16);
+    document.getElementById('requestedDate').min = minimumDate;
+    document.getElementById('closeRequestService').addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+    window.addEventListener('click', event => {
+        if (event.target === modal) {
+            modal.style.display = 'none';
+        }
+    });
+    document.getElementById('requestServiceForm').addEventListener('submit', async event => {
+        event.preventDefault();
+        const message = document.getElementById('requestServiceMessage');
+        const submitButton = event.target.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+        try {
+            const response = await fetch('/api/service-requests', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    service_id: document.getElementById('requestedServiceId').value,
+                    requested_date: document.getElementById('requestedDate').value,
+                    reason: document.getElementById('requestReason').value
+                })
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'Unable to submit request.');
+            }
+            modal.style.display = 'none';
+            event.target.reset();
+            alert('Service request submitted successfully.');
+        } catch (error) {
+            message.textContent = error.message;
+            message.className = 'alert alert-danger';
+            message.hidden = false;
+        } finally {
+            submitButton.disabled = false;
+        }
+    });
 }
 
 function setupServiceForm() {

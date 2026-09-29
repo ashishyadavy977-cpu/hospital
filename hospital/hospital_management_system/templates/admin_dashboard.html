@@ -4,9 +4,19 @@
 
 {% block content %}
 <div class="admin-dashboard-container">
+    <div class="admin-topbar">
+        <a class="admin-brand" href="{{ url_for('admin_dashboard') }}"><i class="fas fa-hospital"></i><span>MediCare<br>Hospital</span></a>
+        <div class="admin-breadcrumb"><i class="fas fa-home"></i> Home <span>/</span> Dashboard</div>
+        <div class="admin-topbar-actions">
+            <a href="{{ url_for('appointments_page') }}" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> Make Appointment</a>
+            <span class="admin-today">{{ now().strftime('%b %d, %Y') if now is defined else 'Today' }}</span>
+            <span class="admin-user"><i class="fas fa-user-circle"></i> {{ session.get('username') }}</span>
+        </div>
+    </div>
     <div class="dashboard-header">
-        <h1><i class="fas fa-lock"></i> Admin Dashboard</h1>
-        <p>System Administration Panel</p>
+        <p class="dashboard-eyebrow">Good morning</p>
+        <h1>Welcome to MediCare</h1>
+        <p>Here is your hospital overview for today.</p>
     </div>
     
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -34,6 +44,12 @@
                 </a></li>
                 <li><a href="#bills" class="menu-link" onclick="showSection('bills')">
                     <i class="fas fa-file-invoice-dollar"></i> All Bills
+                </a></li>
+                <li><a href="#service-requests" class="menu-link" onclick="showSection('service-requests')">
+                    <i class="fas fa-hand-holding-medical"></i> Service Requests
+                </a></li>
+                <li><a href="#medical-records" class="menu-link" onclick="showSection('medical-records')">
+                    <i class="fas fa-file-medical"></i> Medical Records
                 </a></li>
                 <li><a href="{{ url_for('index') }}" class="menu-link">
                     <i class="fas fa-home"></i> Back to Home
@@ -176,6 +192,78 @@
             </section>
             
             <!-- Bills Section -->
+            <section id="service-requests" class="dashboard-section">
+                <h2>Service Requests</h2>
+                {% if service_requests %}
+                    <div class="appointments-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Patient</th>
+                                    <th>Service</th>
+                                    <th>Requested Date</th>
+                                    <th>Reason</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for service_request in service_requests %}
+                                    <tr>
+                                        <td>{{ service_request.user.full_name }}</td>
+                                        <td>{{ service_request.service.name }}</td>
+                                        <td>{{ service_request.requested_date.strftime('%Y-%m-%d %H:%M') }}</td>
+                                        <td>{{ service_request.reason or 'N/A' }}</td>
+                                        <td><span class="status-badge status-{{ service_request.status.lower() }}">{{ service_request.status }}</span></td>
+                                        <td>
+                                            {% if service_request.status == 'Pending' %}
+                                                <button class="btn btn-success btn-sm" onclick="updateServiceRequest({{ service_request.id }}, 'Approved')">Approve</button>
+                                            {% elif service_request.status == 'Approved' %}
+                                                <button class="btn btn-primary btn-sm" onclick="updateServiceRequest({{ service_request.id }}, 'Completed')">Complete</button>
+                                            {% endif %}
+                                            {% if service_request.status not in ['Completed', 'Cancelled'] %}
+                                                <button class="btn btn-danger btn-sm" onclick="updateServiceRequest({{ service_request.id }}, 'Cancelled')">Cancel</button>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="empty-message">No service requests found.</p>
+                {% endif %}
+            </section>
+
+            <!-- Bills Section -->
+            <section id="medical-records" class="dashboard-section">
+                <h2>Medical Records</h2>
+                <form id="medicalRecordForm" class="admin-record-form">
+                    <div class="form-group">
+                        <label for="recordPatient">Patient</label>
+                        <select id="recordPatient" required>
+                            <option value="">Select patient...</option>
+                            {% for user in users %}<option value="{{ user.id }}">{{ user.full_name }} ({{ user.email }})</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="recordTitle">Record Title</label>
+                        <input id="recordTitle" type="text" maxlength="150" placeholder="Example: Cardiology consultation" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="recordDiagnosis">Diagnosis</label>
+                        <input id="recordDiagnosis" type="text" placeholder="Diagnosis or assessment">
+                    </div>
+                    <div class="form-group">
+                        <label for="recordNotes">Notes</label>
+                        <textarea id="recordNotes" rows="4" placeholder="Treatment notes and recommendations"></textarea>
+                    </div>
+                    <button class="btn btn-primary" type="submit">Save Medical Record</button>
+                    <p id="medicalRecordMessage" class="alert" role="status" hidden></p>
+                </form>
+            </section>
+
+            <!-- Bills Section -->
             <section id="bills" class="dashboard-section">
                 <h2>All Bills</h2>
                 {% if bills %}
@@ -291,7 +379,6 @@
     border-left-color: #e74c3c;
     padding-left: 20px;
     transform: translateX(4px);
-}
 }
 
 .dashboard-main {
@@ -525,6 +612,262 @@ table tbody tr:hover {
         grid-template-columns: 1fr;
     }
 }
+
+body:has(.admin-dashboard-container) {
+    background: #f3f7fc;
+}
+
+body:has(.admin-dashboard-container) .navbar {
+    display: none;
+}
+
+.admin-topbar {
+    min-height: 62px;
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    margin-bottom: 20px;
+}
+
+.admin-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #1267e8;
+    font-size: 17px;
+    font-weight: 800;
+    line-height: 1.05;
+    text-decoration: none;
+}
+
+.admin-brand i {
+    font-size: 28px;
+}
+
+.admin-breadcrumb {
+    color: #8292a8;
+    font-size: 13px;
+}
+
+.admin-breadcrumb span {
+    padding: 0 8px;
+    color: #c3cfdd;
+}
+
+.admin-topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-left: auto;
+}
+
+.admin-topbar-actions .btn {
+    box-shadow: none;
+}
+
+.admin-today,
+.admin-user {
+    color: #52657d;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.admin-user i {
+    color: #1267e8;
+    margin-right: 5px;
+}
+
+.admin-dashboard-container {
+    max-width: 1440px;
+    padding: 28px 32px 48px;
+}
+
+.admin-dashboard-container .dashboard-header {
+    background: linear-gradient(105deg, #1267e8 0%, #2388f5 65%, #63b3ff 100%);
+    border-radius: 18px;
+    min-height: 180px;
+    padding: 34px 42px;
+    margin-bottom: 24px;
+    box-shadow: 0 14px 30px rgba(23, 102, 218, 0.2);
+    position: relative;
+    overflow: hidden;
+}
+
+.admin-dashboard-container .dashboard-header::after {
+    content: '';
+    position: absolute;
+    width: 280px;
+    height: 280px;
+    right: 8%;
+    top: -150px;
+    border: 42px solid rgba(255, 255, 255, 0.12);
+    border-radius: 50%;
+}
+
+.admin-dashboard-container .dashboard-header h1,
+.admin-dashboard-container .dashboard-header p {
+    position: relative;
+    z-index: 1;
+}
+
+.admin-dashboard-container .dashboard-header h1 {
+    font-size: 30px;
+    margin-bottom: 8px;
+}
+
+.admin-dashboard-container .dashboard-eyebrow {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+    opacity: 0.8;
+}
+
+.admin-dashboard-container .dashboard-header p {
+    opacity: 0.9;
+}
+
+.admin-dashboard-container .dashboard-content {
+    display: grid;
+    grid-template-columns: 225px minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+}
+
+.admin-dashboard-container .dashboard-sidebar {
+    width: auto;
+    background: #fff;
+    border-radius: 16px;
+    padding: 16px 12px;
+    box-shadow: 0 6px 22px rgba(37, 76, 125, 0.08);
+}
+
+.admin-dashboard-container .dashboard-menu li {
+    margin-bottom: 5px;
+}
+
+.admin-dashboard-container .menu-link {
+    background: transparent;
+    border-left: 0;
+    border-radius: 10px;
+    color: #64748b;
+    padding: 13px 14px;
+}
+
+.admin-dashboard-container .menu-link:hover,
+.admin-dashboard-container .menu-link.active {
+    background: #eaf3ff;
+    border-left: 0;
+    color: #1267e8;
+    padding-left: 14px;
+    transform: none;
+    box-shadow: none;
+}
+
+.admin-dashboard-container .menu-link i {
+    width: 22px;
+    margin-right: 8px;
+}
+
+.admin-dashboard-container .menu-link.logout {
+    color: #e05b6d;
+    margin-top: 18px;
+}
+
+.admin-dashboard-container .dashboard-main {
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0;
+}
+
+.admin-dashboard-container .dashboard-section h2 {
+    border: 0;
+    color: #172b4d;
+    font-size: 22px;
+    padding: 0;
+    margin: 0 0 18px;
+}
+
+.admin-dashboard-container .stats-container {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+}
+
+.admin-dashboard-container .stat-card {
+    background: #fff;
+    color: #172b4d;
+    border-radius: 14px;
+    padding: 18px;
+    box-shadow: 0 6px 22px rgba(37, 76, 125, 0.08);
+}
+
+.admin-dashboard-container .stat-card i {
+    color: #1267e8;
+    font-size: 24px;
+    background: #eaf3ff;
+    border-radius: 10px;
+    padding: 10px;
+}
+
+.admin-dashboard-container .stat-label {
+    color: #718096;
+}
+
+.admin-dashboard-container .stat-value {
+    color: #172b4d;
+    font-size: 26px;
+}
+
+.admin-dashboard-container .admin-actions,
+.admin-dashboard-container .users-table,
+.admin-dashboard-container .appointments-table,
+.admin-dashboard-container .bills-table {
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 6px 22px rgba(37, 76, 125, 0.08);
+}
+
+.admin-dashboard-container .admin-actions {
+    padding: 22px;
+    margin-top: 0;
+}
+
+.admin-dashboard-container .admin-actions h3 {
+    color: #172b4d;
+}
+
+.admin-dashboard-container .action-buttons .btn {
+    background: #1267e8;
+    box-shadow: none;
+}
+
+.admin-dashboard-container table thead {
+    background: #eaf3ff;
+}
+
+.admin-dashboard-container table th {
+    color: #486581;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+@media (max-width: 900px) {
+    .admin-topbar {
+        flex-wrap: wrap;
+    }
+
+    .admin-topbar-actions {
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .admin-dashboard-container .stats-container {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
 </style>
 
 <script>
@@ -543,5 +886,54 @@ function showSection(sectionId) {
     // Add active class to the clicked menu link
     event.target.closest('.menu-link').classList.add('active');
 }
+
+function updateServiceRequest(id, status) {
+    fetch(`/api/service-requests/${id}`, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({status: status})
+    })
+    .then(response => response.json().then(data => ({ok: response.ok, data: data})))
+    .then(result => {
+        if (!result.ok || !result.data.success) {
+            throw new Error(result.data.error || 'Unable to update service request.');
+        }
+        window.location.reload();
+    })
+    .catch(error => alert(error.message));
+}
+
+document.getElementById('medicalRecordForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const message = document.getElementById('medicalRecordMessage');
+    const button = event.target.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+        const response = await fetch('/api/medical-records', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                patient_id: document.getElementById('recordPatient').value,
+                title: document.getElementById('recordTitle').value,
+                diagnosis: document.getElementById('recordDiagnosis').value,
+                notes: document.getElementById('recordNotes').value
+            })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            throw new Error(result.error || 'Unable to save medical record.');
+        }
+        message.textContent = 'Medical record saved successfully.';
+        message.className = 'alert alert-success';
+        message.hidden = false;
+        event.target.reset();
+    } catch (error) {
+        message.textContent = error.message;
+        message.className = 'alert alert-danger';
+        message.hidden = false;
+    } finally {
+        button.disabled = false;
+    }
+});
 </script>
 {% endblock %}
