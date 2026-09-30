@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+
+{% block title %}Pharmacy Management - MediCare Hospital{% endblock %}
+
+{% block content %}
+<div class="container pharmacy-page">
+    <div class="page-header">
+        <h1>Pharmacy Management</h1>
+        <p>Manage medicine inventory, stock levels, expiry dates, and dispensing</p>
+    </div>
+
+    <div id="pharmacyMessage" class="alert" role="status" hidden></div>
+
+    <section class="pharmacy-dashboard-panel">
+        <div class="pharmacy-panel-header">
+            <div><h2>Pharmacy Overview</h2><p>Live inventory and dispensing activity.</p></div>
+            <button class="btn btn-primary" type="button" id="openMedicineBtn"><i class="fas fa-plus"></i> Add Medicine</button>
+        </div>
+        <div class="pharmacy-stats-grid">
+            <div class="pharmacy-stat-card pharmacy-stat-total"><i class="fas fa-pills"></i><div><span>Total Medicines</span><strong id="totalMedicines">0</strong></div></div>
+            <div class="pharmacy-stat-card pharmacy-stat-low"><i class="fas fa-box-open"></i><div><span>Low Stock</span><strong id="lowStockMedicines">0</strong></div></div>
+            <div class="pharmacy-stat-card pharmacy-stat-expiring"><i class="fas fa-calendar-xmark"></i><div><span>Expiring Soon</span><strong id="expiringMedicines">0</strong></div></div>
+            <div class="pharmacy-stat-card pharmacy-stat-sales"><i class="fas fa-cash-register"></i><div><span>Today's Sales</span><strong id="todaySales">0</strong></div></div>
+        </div>
+    </section>
+
+    <section class="pharmacy-list-panel">
+        <div class="pharmacy-panel-header">
+            <div><h2>Medicine Inventory</h2><p>Search batches and monitor stock and expiry warnings.</p></div>
+            <button class="btn btn-success" type="button" id="openDispenseBtn"><i class="fas fa-prescription-bottle-medical"></i> Dispense Medicine</button>
+        </div>
+        <div class="pharmacy-filters">
+            <div class="form-group"><label for="medicineSearch">Search</label><input id="medicineSearch" type="search" placeholder="Medicine, manufacturer, or batch"></div>
+            <div class="form-group"><label for="medicineCategory">Category</label><select id="medicineCategory"><option value="">All categories</option></select></div>
+            <div class="form-group"><label for="medicineWarning">Warnings</label><select id="medicineWarning"><option value="">All inventory</option><option value="low_stock">Low stock</option><option value="expiring">Expiring soon</option></select></div>
+        </div>
+        <div class="pharmacy-table-wrapper">
+            <table class="pharmacy-table">
+                <thead><tr><th>Medicine</th><th>Category / Manufacturer</th><th>Batch</th><th>Stock</th><th>Prices</th><th>Expiry</th><th>Actions</th></tr></thead>
+                <tbody id="medicineBody"><tr><td colspan="7" class="empty-message">Loading inventory...</td></tr></tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="pharmacy-list-panel">
+        <div class="pharmacy-panel-header"><div><h2>Dispensing Records</h2><p>Recent medicine sales linked to patient prescriptions where available.</p></div></div>
+        <div class="pharmacy-filters pharmacy-sales-filter"><div class="form-group"><label for="salesSearch">Search sales</label><input id="salesSearch" type="search" placeholder="Patient, medicine, or batch"></div></div>
+        <div class="pharmacy-table-wrapper">
+            <table class="pharmacy-table">
+                <thead><tr><th>Date</th><th>Patient</th><th>Medicine</th><th>Quantity</th><th>Total</th><th>Prescription</th><th>Dispensed By</th></tr></thead>
+                <tbody id="salesBody"><tr><td colspan="7" class="empty-message">Loading sales...</td></tr></tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<div id="medicineModal" class="modal">
+    <div class="modal-content">
+        <span class="close" id="closeMedicineModal">&times;</span>
+        <h2 id="medicineModalTitle">Add Medicine</h2>
+        <form id="medicineForm">
+            <input type="hidden" id="medicineId">
+            <div class="form-group"><label for="medicineName">Medicine Name</label><input id="medicineName" maxlength="150" required></div>
+            <div class="form-group"><label for="medicineCategoryInput">Category</label><input id="medicineCategoryInput" maxlength="100" placeholder="Example: Antibiotic" required></div>
+            <div class="form-group"><label for="medicineManufacturer">Manufacturer</label><input id="medicineManufacturer" maxlength="150" required></div>
+            <div class="form-group"><label for="medicineBatch">Batch Number</label><input id="medicineBatch" maxlength="80" required></div>
+            <div class="form-grid-two"><div class="form-group"><label for="medicineQuantity">Quantity</label><input id="medicineQuantity" type="number" min="0" step="1" required></div><div class="form-group"><label for="medicineThreshold">Low-stock Threshold</label><input id="medicineThreshold" type="number" min="0" step="1" value="10" required></div></div>
+            <div class="form-grid-two"><div class="form-group"><label for="purchasePrice">Purchase Price</label><input id="purchasePrice" type="number" min="0" step="0.01" required></div><div class="form-group"><label for="sellingPrice">Selling Price</label><input id="sellingPrice" type="number" min="0" step="0.01" required></div></div>
+            <div class="form-group"><label for="medicineExpiry">Expiry Date</label><input id="medicineExpiry" type="date" required></div>
+            <button class="btn btn-primary" type="submit">Save Medicine</button>
+        </form>
+    </div>
+</div>
+
+<div id="dispenseModal" class="modal">
+    <div class="modal-content">
+        <span class="close" id="closeDispenseModal">&times;</span>
+        <h2>Dispense Medicine</h2>
+        <form id="dispenseForm">
+            <div class="form-group"><label for="salePatient">Patient</label><select id="salePatient" required><option value="">Select patient...</option>{% for patient in patients %}<option value="{{ patient.id }}">{{ patient.full_name }} ({{ patient.email }})</option>{% endfor %}</select></div>
+            <div class="form-group"><label for="saleMedicine">Medicine Batch</label><select id="saleMedicine" required><option value="">Select medicine...</option></select></div>
+            <div class="form-group"><label for="salePrescription">Prescription Link</label><select id="salePrescription"><option value="">Auto-match if possible</option></select></div>
+            <div class="form-group"><label for="saleQuantity">Quantity</label><input id="saleQuantity" type="number" min="1" step="1" required></div>
+            <div class="form-group"><label for="saleNotes">Notes</label><textarea id="saleNotes" rows="3"></textarea></div>
+            <button class="btn btn-success" type="submit">Complete Dispensing</button>
+        </form>
+    </div>
+</div>
+
+<script>
+const pharmacyMessage = document.getElementById('pharmacyMessage');
+const medicineSearch = document.getElementById('medicineSearch');
+const medicineCategory = document.getElementById('medicineCategory');
+const medicineWarning = document.getElementById('medicineWarning');
+const salesSearch = document.getElementById('salesSearch');
+const canDeleteMedicines = {{ 'true' if can_delete else 'false' }};
+const canAdjustStock = {{ 'true' if can_adjust_stock else 'false' }};
+let currentMedicines = [];
+
+function escapePharmacyHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[character]));
+}
+
+function showPharmacyMessage(message, type = 'success') {
+    pharmacyMessage.textContent = message;
+    pharmacyMessage.className = `alert alert-${type}`;
+    pharmacyMessage.hidden = false;
+    window.setTimeout(() => { pharmacyMessage.hidden = true; }, 5000);
+}
+
+function updatePharmacyStats(statistics) {
+    document.getElementById('totalMedicines').textContent = statistics.total_medicines;
+    document.getElementById('lowStockMedicines').textContent = statistics.low_stock;
+    document.getElementById('expiringMedicines').textContent = statistics.expiring_soon;
+    document.getElementById('todaySales').textContent = statistics.todays_sales;
+}
+
+function setCategoryOptions(categories) {
+    const selected = medicineCategory.value;
+    medicineCategory.innerHTML = '<option value="">All categories</option>';
+    categories.forEach(category => medicineCategory.insertAdjacentHTML('beforeend', `<option value="${escapePharmacyHtml(category)}">${escapePharmacyHtml(category)}</option>`));
+    medicineCategory.value = categories.includes(selected) ? selected : '';
+}
+
+function renderMedicines(medicines) {
+    const body = document.getElementById('medicineBody');
+    currentMedicines = medicines;
+    document.getElementById('saleMedicine').innerHTML = '<option value="">Select medicine...</option>' + medicines.filter(item => !item.is_expired && item.quantity > 0).map(item => `<option value="${item.id}">${escapePharmacyHtml(item.medicine_name)} - ${escapePharmacyHtml(item.batch_number)} (${item.quantity} available)</option>`).join('');
+    if (!medicines.length) {
+        body.innerHTML = '<tr><td colspan="7" class="empty-message">No medicines match the current filters.</td></tr>';
+        return;
+    }
+    body.innerHTML = medicines.map(item => {
+        const warnings = [];
+        if (item.is_expired) warnings.push('<span class="pharmacy-warning pharmacy-warning-danger">Expired</span>');
+        else if (item.is_expiring_soon) warnings.push('<span class="pharmacy-warning pharmacy-warning-expiry">Expiring soon</span>');
+        if (item.is_low_stock) warnings.push('<span class="pharmacy-warning pharmacy-warning-stock">Low stock</span>');
+        const stockActions = canAdjustStock ? `<button class="btn btn-small btn-success" type="button" onclick="changeStock(${item.id}, 1)">+ Stock</button><button class="btn btn-small btn-warning" type="button" onclick="changeStock(${item.id}, -1)">- Stock</button>` : '';
+        const deleteAction = canDeleteMedicines ? `<button class="btn btn-small btn-danger" type="button" onclick="deleteMedicine(${item.id})">Delete</button>` : '';
+        return `<tr>
+            <td><strong>${escapePharmacyHtml(item.medicine_name)}</strong>${warnings.join('')}</td>
+            <td>${escapePharmacyHtml(item.category)}<small>${escapePharmacyHtml(item.manufacturer)}</small></td>
+            <td>${escapePharmacyHtml(item.batch_number)}</td>
+            <td><strong>${item.quantity}</strong><small>Threshold: ${item.low_stock_threshold}</small></td>
+            <td>Buy: $${Number(item.purchase_price).toFixed(2)}<small>Sell: $${Number(item.selling_price).toFixed(2)}</small></td>
+            <td>${escapePharmacyHtml(item.expiry_date)}</td>
+            <td class="pharmacy-actions"><button class="btn btn-small btn-secondary" type="button" onclick="openMedicineModal(${item.id})">Edit</button>${stockActions}${deleteAction}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function loadMedicines() {
+    const params = new URLSearchParams({q: medicineSearch.value.trim(), category: medicineCategory.value});
+    if (medicineWarning.value) params.set(medicineWarning.value, '1');
+    try {
+        const response = await fetch(`/api/medicines?${params}`);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to load medicines.');
+        updatePharmacyStats(result.statistics);
+        setCategoryOptions(result.categories);
+        renderMedicines(result.medicines);
+    } catch (error) {
+        showPharmacyMessage(error.message, 'danger');
+    }
+}
+
+async function loadSales() {
+    const params = new URLSearchParams({q: salesSearch.value.trim()});
+    try {
+        const response = await fetch(`/api/medicine-sales?${params}`);
+        const sales = await response.json();
+        if (!response.ok) throw new Error(sales.error || 'Unable to load dispensing records.');
+        const body = document.getElementById('salesBody');
+        if (!sales.length) {
+            body.innerHTML = '<tr><td colspan="7" class="empty-message">No dispensing records found.</td></tr>';
+            return;
+        }
+        body.innerHTML = sales.map(sale => `<tr><td>${new Date(sale.sold_at).toLocaleString()}</td><td>${escapePharmacyHtml(sale.patient_name)}</td><td>${escapePharmacyHtml(sale.medicine_name)}<small>${escapePharmacyHtml(sale.batch_number)}</small></td><td>${sale.quantity}</td><td>$${Number(sale.total_amount).toFixed(2)}</td><td>${sale.prescription_id ? `#${sale.prescription_id}` : 'Not linked'}</td><td>${escapePharmacyHtml(sale.dispensed_by)}</td></tr>`).join('');
+    } catch (error) {
+        showPharmacyMessage(error.message, 'danger');
+    }
+}
+
+function openMedicineModal(medicineId = null) {
+    document.getElementById('medicineForm').reset();
+    document.getElementById('medicineId').value = medicineId || '';
+    document.getElementById('medicineModalTitle').textContent = medicineId ? 'Edit Medicine' : 'Add Medicine';
+    const item = currentMedicines.find(medicine => medicine.id === medicineId);
+    if (item) {
+        document.getElementById('medicineName').value = item.medicine_name;
+        document.getElementById('medicineCategoryInput').value = item.category;
+        document.getElementById('medicineManufacturer').value = item.manufacturer;
+        document.getElementById('medicineBatch').value = item.batch_number;
+        document.getElementById('medicineQuantity').value = item.quantity;
+        document.getElementById('medicineThreshold').value = item.low_stock_threshold;
+        document.getElementById('purchasePrice').value = item.purchase_price;
+        document.getElementById('sellingPrice').value = item.selling_price;
+        document.getElementById('medicineExpiry').value = item.expiry_date;
+    }
+    document.getElementById('medicineModal').style.display = 'block';
+}
+
+async function submitMedicine(event) {
+    event.preventDefault();
+    const medicineId = document.getElementById('medicineId').value;
+    const payload = {medicine_name: document.getElementById('medicineName').value, category: document.getElementById('medicineCategoryInput').value, manufacturer: document.getElementById('medicineManufacturer').value, batch_number: document.getElementById('medicineBatch').value, quantity: document.getElementById('medicineQuantity').value, low_stock_threshold: document.getElementById('medicineThreshold').value, purchase_price: document.getElementById('purchasePrice').value, selling_price: document.getElementById('sellingPrice').value, expiry_date: document.getElementById('medicineExpiry').value};
+    try {
+        const response = await fetch(medicineId ? `/api/medicines/${medicineId}` : '/api/medicines', {method: medicineId ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to save medicine.');
+        document.getElementById('medicineModal').style.display = 'none';
+        showPharmacyMessage(result.message);
+        loadMedicines();
+    } catch (error) {
+        showPharmacyMessage(error.message, 'danger');
+    }
+}
+
+async function changeStock(medicineId, direction) {
+    const amount = window.prompt(direction > 0 ? 'How many units should be added?' : 'How many units should be removed?', '1');
+    const quantity = Number(amount);
+    if (!Number.isInteger(quantity) || quantity <= 0) return;
+    try {
+        const response = await fetch(`/api/medicines/${medicineId}/stock`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({change: direction * quantity})});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to update stock.');
+        showPharmacyMessage(result.message);
+        loadMedicines();
+    } catch (error) {
+        showPharmacyMessage(error.message, 'danger');
+    }
+}
+
+async function deleteMedicine(medicineId) {
+    if (!window.confirm('Delete this medicine batch?')) return;
+    try {
+        const response = await fetch(`/api/medicines/${medicineId}`, {method: 'DELETE'});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to delete medicine.');
+        showPharmacyMessage(result.message);
+        loadMedicines();
+    } catch (error) {
+        showPharmacyMessage(error.message, 'danger');
+    }
+}
+
+async function loadPatientPrescriptions() {
+    const patientId = document.getElementById('salePatient').value;
+    const select = document.getElementById('salePrescription');
+    select.innerHTML = '<option value="">Auto-match if possible</option>';
+    if (!patientId) return;
+    const response = await fetch(`/api/pharmacy/patients/${patientId}/prescriptions`);
+    const prescriptions = await response.json();
+    if (!response.ok) return;
+    prescriptions.forEach(prescription => select.insertAdjacentHTML('beforeend', `<option value="${prescription.id}">${escapePharmacyHtml(prescription.medicine)} - ${escapePharmacyHtml(prescription.dosage)}</option>`));
+}
+
+async function submitDispensing(event) {
+    event.preventDefault();
+    const payload = {patient_id: document.getElementById('salePatient').value, medicine_id: document.getElementById('saleMedicine').value, prescription_id: document.getElementById('salePrescription').value, quantity: document.getElementById('saleQuantity').value, notes: document.getElementById('saleNotes').value};
+    try {
+        const response = await fetch('/api/medicine-sales', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to dispense medicine.');
+        document.getElementById('dispenseModal').style.display = 'none';
+        event.target.reset();
+        document.getElementById('salePrescription').innerHTML = '<option value="">Auto-match if possible</option>';
+        showPharmacyMessage(result.message);
+        loadMedicines();
+        loadSales();
+    } catch (error) {
+        showPharmacyMessage(error.message, 'danger');
+    }
+}
+
+document.getElementById('openMedicineBtn').addEventListener('click', () => openMedicineModal());
+document.getElementById('closeMedicineModal').addEventListener('click', () => { document.getElementById('medicineModal').style.display = 'none'; });
+document.getElementById('medicineForm').addEventListener('submit', submitMedicine);
+document.getElementById('openDispenseBtn').addEventListener('click', () => { document.getElementById('dispenseModal').style.display = 'block'; });
+document.getElementById('closeDispenseModal').addEventListener('click', () => { document.getElementById('dispenseModal').style.display = 'none'; });
+document.getElementById('salePatient').addEventListener('change', loadPatientPrescriptions);
+document.getElementById('dispenseForm').addEventListener('submit', submitDispensing);
+[medicineSearch, medicineCategory, medicineWarning].forEach(input => input.addEventListener('input', loadMedicines));
+salesSearch.addEventListener('input', loadSales);
+window.addEventListener('click', event => document.querySelectorAll('.modal').forEach(modal => { if (event.target === modal) modal.style.display = 'none'; }));
+loadMedicines();
+loadSales();
+</script>
+{% endblock %}

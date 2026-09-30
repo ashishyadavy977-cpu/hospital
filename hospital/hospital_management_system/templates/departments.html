@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block title %}Departments - MediCare Hospital{% endblock %}
+
+{% block content %}
+<div class="container departments-page">
+    <div class="page-header">
+        <h1>Hospital Departments</h1>
+        <p>Explore clinical teams, department contacts, doctors, and appointments</p>
+    </div>
+
+    <div id="departmentMessage" class="alert" role="status" hidden></div>
+
+    <section class="department-dashboard-panel">
+        <div class="department-panel-header">
+            <div><h2>Department Overview</h2><p>Department activity is calculated from existing doctor and appointment records.</p></div>
+            {% if session.get('user_type') == 'admin' %}<button class="btn btn-primary" type="button" id="openDepartmentBtn"><i class="fas fa-plus"></i> Add Department</button>{% endif %}
+        </div>
+        <div class="department-stats-grid">
+            <div class="department-stat-card department-stat-total"><i class="fas fa-hospital"></i><div><span>Total Departments</span><strong id="totalDepartments">0</strong></div></div>
+            <div class="department-stat-card department-stat-active"><i class="fas fa-circle-check"></i><div><span>Active Departments</span><strong id="activeDepartments">0</strong></div></div>
+            <div class="department-stat-card department-stat-doctors"><i class="fas fa-user-md"></i><div><span>Assigned Doctors</span><strong id="assignedDoctors">0</strong></div></div>
+            <div class="department-stat-card department-stat-appointments"><i class="fas fa-calendar-check"></i><div><span>Department Appointments</span><strong id="departmentAppointments">0</strong></div></div>
+        </div>
+    </section>
+
+    <section class="department-list-panel">
+        <div class="department-filters">
+            <div class="form-group"><label for="departmentSearch">Search departments</label><input id="departmentSearch" type="search" placeholder="Name or description"></div>
+            <div class="form-group"><label for="departmentStatus">Status</label><select id="departmentStatus"><option value="">All statuses</option><option value="Active">Active</option><option value="Inactive">Inactive</option></select></div>
+        </div>
+        <div id="departmentDirectory" class="department-directory"><p class="empty-message">Loading departments...</p></div>
+    </section>
+</div>
+
+{% if session.get('user_type') == 'admin' %}
+<div id="departmentModal" class="modal">
+    <div class="modal-content">
+        <span class="close" id="closeDepartmentModal">&times;</span>
+        <h2 id="departmentModalTitle">Add Department</h2>
+        <form id="departmentForm">
+            <input type="hidden" id="departmentId">
+            <div class="form-group"><label for="departmentName">Department Name</label><input id="departmentName" maxlength="100" required></div>
+            <div class="form-group"><label for="departmentDescription">Description</label><textarea id="departmentDescription" rows="3"></textarea></div>
+            <div class="form-group"><label for="departmentHead">Head Doctor</label><select id="departmentHead"><option value="">Not assigned</option>{% for doctor in doctors %}<option value="{{ doctor.id }}">{{ doctor.name }} - {{ doctor.specialization }}</option>{% endfor %}</select></div>
+            <div class="form-grid-two"><div class="form-group"><label for="departmentPhone">Contact Phone</label><input id="departmentPhone" maxlength="20"></div><div class="form-group"><label for="departmentEmail">Contact Email</label><input id="departmentEmail" type="email" maxlength="100"></div></div>
+            <div class="form-group"><label for="departmentStatusInput">Status</label><select id="departmentStatusInput"><option value="Active">Active</option><option value="Inactive">Inactive</option></select></div>
+            <button class="btn btn-primary" type="submit">Save Department</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<script>
+const departmentMessage = document.getElementById('departmentMessage');
+const departmentSearch = document.getElementById('departmentSearch');
+const departmentStatus = document.getElementById('departmentStatus');
+const canManageDepartments = {{ 'true' if session.get('user_type') == 'admin' else 'false' }};
+let currentDepartments = [];
+
+function escapeDepartmentHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[character]));
+}
+
+function showDepartmentMessage(message, type = 'success') {
+    departmentMessage.textContent = message;
+    departmentMessage.className = `alert alert-${type}`;
+    departmentMessage.hidden = false;
+    window.setTimeout(() => { departmentMessage.hidden = true; }, 5000);
+}
+
+function updateDepartmentStats(statistics) {
+    document.getElementById('totalDepartments').textContent = statistics.total_departments;
+    document.getElementById('activeDepartments').textContent = statistics.active_departments;
+    document.getElementById('assignedDoctors').textContent = statistics.assigned_doctors;
+    document.getElementById('departmentAppointments').textContent = statistics.appointments;
+}
+
+function renderDepartments(departments) {
+    currentDepartments = departments;
+    const directory = document.getElementById('departmentDirectory');
+    if (!departments.length) {
+        directory.innerHTML = '<p class="empty-message">No departments match the current filters.</p>';
+        return;
+    }
+    directory.innerHTML = departments.map(department => {
+        const doctors = department.doctors.length ? department.doctors.map(doctor => `<li><strong>${escapeDepartmentHtml(doctor.name)}</strong><span>${escapeDepartmentHtml(doctor.specialization)}</span></li>`).join('') : '<li class="department-empty">No doctors assigned.</li>';
+        const appointments = department.appointments.length ? `<div class="department-appointments"><h4>Recent Appointments</h4><div class="department-appointment-list">${department.appointments.slice(0, 5).map(appointment => `<div><strong>${escapeDepartmentHtml(appointment.patient_name)}</strong><span>${escapeDepartmentHtml(appointment.doctor_name)} | ${new Date(appointment.appointment_date).toLocaleString()}</span><em>${escapeDepartmentHtml(appointment.status)}</em></div>`).join('')}</div></div>` : '<div class="department-appointments"><h4>Appointments</h4><p class="department-empty">No appointments recorded.</p></div>';
+        const actions = canManageDepartments ? `<div class="department-actions"><button class="btn btn-small btn-secondary" type="button" onclick="openDepartmentModal(${department.id})">Edit</button><button class="btn btn-small btn-danger" type="button" onclick="deleteDepartment(${department.id})">Delete</button></div>` : '';
+        return `<article class="department-card">
+            <div class="department-card-header"><div><span class="department-status department-status-${department.status.toLowerCase()}">${escapeDepartmentHtml(department.status)}</span><h3>${escapeDepartmentHtml(department.name)}</h3></div>${actions}</div>
+            <p class="department-description">${escapeDepartmentHtml(department.description || 'No department description available.')}</p>
+            <div class="department-contact"><span><i class="fas fa-user-md"></i> Head: ${escapeDepartmentHtml(department.head_doctor || 'Not assigned')}</span><span><i class="fas fa-phone"></i> ${escapeDepartmentHtml(department.phone || 'Not provided')}</span><span><i class="fas fa-envelope"></i> ${escapeDepartmentHtml(department.email || 'Not provided')}</span></div>
+            <div class="department-doctors"><h4>Doctors (${department.doctor_count})</h4><ul>${doctors}</ul></div>
+            ${appointments}
+        </article>`;
+    }).join('');
+}
+
+async function loadDepartments() {
+    const params = new URLSearchParams({q: departmentSearch.value.trim(), status: departmentStatus.value});
+    try {
+        const response = await fetch(`/api/departments?${params}`);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to load departments.');
+        updateDepartmentStats(result.statistics);
+        renderDepartments(result.departments);
+    } catch (error) {
+        showDepartmentMessage(error.message, 'danger');
+    }
+}
+
+function openDepartmentModal(departmentId = null) {
+    document.getElementById('departmentForm').reset();
+    document.getElementById('departmentId').value = departmentId || '';
+    document.getElementById('departmentModalTitle').textContent = departmentId ? 'Edit Department' : 'Add Department';
+    const department = currentDepartments.find(item => item.id === departmentId);
+    if (department) {
+        document.getElementById('departmentName').value = department.name;
+        document.getElementById('departmentDescription').value = department.description || '';
+        document.getElementById('departmentHead').value = department.head_doctor_id || '';
+        document.getElementById('departmentPhone').value = department.phone || '';
+        document.getElementById('departmentEmail').value = department.email || '';
+        document.getElementById('departmentStatusInput').value = department.status;
+    }
+    document.getElementById('departmentModal').style.display = 'block';
+}
+
+async function submitDepartment(event) {
+    event.preventDefault();
+    const departmentId = document.getElementById('departmentId').value;
+    const payload = {name: document.getElementById('departmentName').value, description: document.getElementById('departmentDescription').value, head_doctor_id: document.getElementById('departmentHead').value, phone: document.getElementById('departmentPhone').value, email: document.getElementById('departmentEmail').value, status: document.getElementById('departmentStatusInput').value};
+    try {
+        const response = await fetch(departmentId ? `/api/departments/${departmentId}` : '/api/departments', {method: departmentId ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to save department.');
+        document.getElementById('departmentModal').style.display = 'none';
+        showDepartmentMessage(result.message);
+        loadDepartments();
+    } catch (error) {
+        showDepartmentMessage(error.message, 'danger');
+    }
+}
+
+async function deleteDepartment(departmentId) {
+    if (!window.confirm('Delete this department?')) return;
+    try {
+        const response = await fetch(`/api/departments/${departmentId}`, {method: 'DELETE'});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to delete department.');
+        showDepartmentMessage(result.message);
+        loadDepartments();
+    } catch (error) {
+        showDepartmentMessage(error.message, 'danger');
+    }
+}
+
+{% if session.get('user_type') == 'admin' %}
+document.getElementById('openDepartmentBtn').addEventListener('click', () => openDepartmentModal());
+document.getElementById('closeDepartmentModal').addEventListener('click', () => { document.getElementById('departmentModal').style.display = 'none'; });
+document.getElementById('departmentForm').addEventListener('submit', submitDepartment);
+{% endif %}
+[departmentSearch, departmentStatus].forEach(input => input.addEventListener('input', loadDepartments));
+window.addEventListener('click', event => { const modal = document.getElementById('departmentModal'); if (modal && event.target === modal) modal.style.display = 'none'; });
+loadDepartments();
+</script>
+{% endblock %}

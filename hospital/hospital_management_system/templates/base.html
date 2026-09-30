@@ -20,12 +20,15 @@
             <ul class="nav-menu">
                 <li><a href="/" class="nav-link">Home</a></li>
                 <li><a href="/hospital-info" class="nav-link">Hospital Info</a></li>
+                <li><a href="{{ url_for('departments_page') }}" class="nav-link">Departments</a></li>
                 <li><a href="/doctors" class="nav-link">Doctors</a></li>
                 <li><a href="/staff" class="nav-link">Staff</a></li>
                 <li><a href="/services" class="nav-link">Services</a></li>
                 <li><a href="/appointments" class="nav-link">Appointments</a></li>
                 {% if session.get('user_id') %}<li><a href="{{ url_for('calendar_page') }}" class="nav-link">Calendar</a></li>{% endif %}
                 <li><a href="/bills" class="nav-link">Billing</a></li>
+                {% if session.get('user_id') %}<li><a href="{{ url_for('laboratory_page') }}" class="nav-link">Laboratory</a></li>{% endif %}
+                {% if session.get('user_type') in ['admin', 'pharmacist', 'receptionist'] %}<li><a href="{{ url_for('pharmacy_page') }}" class="nav-link">Pharmacy</a></li>{% endif %}
                 {% if session.get('user_id') %}
                     <li class="user-menu-item">
                         <a href="#" class="nav-link user-menu-toggle">
@@ -35,6 +38,7 @@
                             {% if session.get('user_type') == 'admin' %}
                                 <li><a href="{{ url_for('admin_dashboard') }}"><i class="fas fa-lock"></i> Admin Dashboard</a></li>
                                 <li><a href="{{ url_for('admin_reports') }}"><i class="fas fa-chart-bar"></i> Reports</a></li>
+                                <li><a href="{{ url_for('beds_page') }}"><i class="fas fa-bed"></i> Bed Management</a></li>
                             {% else %}
                                 <li><a href="{{ url_for('user_dashboard') }}"><i class="fas fa-dashboard"></i> My Dashboard</a></li>
                             {% endif %}

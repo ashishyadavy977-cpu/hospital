@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}Laboratory Management - MediCare Hospital{% endblock %}
+
+{% block content %}
+<div class="container laboratory-page">
+    <div class="page-header">
+        <h1>Laboratory Management</h1>
+        <p>Coordinate tests, samples, processing, and patient reports</p>
+    </div>
+
+    <div id="labMessage" class="alert" role="status" hidden></div>
+
+    <section class="lab-dashboard-panel">
+        <div class="lab-panel-header">
+            <div>
+                <h2>Laboratory Overview</h2>
+                <p>Live test activity for your permitted patient scope.</p>
+            </div>
+            {% if can_create %}<button class="btn btn-primary" type="button" id="openBookingBtn"><i class="fas fa-vial"></i> Book Lab Test</button>{% endif %}
+            {% if can_request %}<button class="btn btn-primary" type="button" id="openRequestBtn"><i class="fas fa-file-medical"></i> Request Lab Test</button>{% endif %}
+        </div>
+        <div class="lab-stats-grid">
+            <div class="lab-stat-card lab-stat-total"><i class="fas fa-flask"></i><div><span>Total Tests</span><strong id="totalTests">0</strong></div></div>
+            <div class="lab-stat-card lab-stat-pending"><i class="fas fa-hourglass-half"></i><div><span>Pending</span><strong id="pendingTests">0</strong></div></div>
+            <div class="lab-stat-card lab-stat-completed"><i class="fas fa-check-circle"></i><div><span>Completed</span><strong id="completedTests">0</strong></div></div>
+            <div class="lab-stat-card lab-stat-today"><i class="fas fa-calendar-day"></i><div><span>Today's Tests</span><strong id="todayTests">0</strong></div></div>
+        </div>
+    </section>
+
+    <section class="lab-list-panel">
+        <div class="lab-panel-header">
+            <div><h2>Test Register</h2><p>Search reports by patient, test, type, status, or date.</p></div>
+        </div>
+        <div class="lab-filters">
+            <div class="form-group"><label for="labSearch">Search</label><input id="labSearch" type="search" placeholder="Patient, test name, or type"></div>
+            <div class="form-group"><label for="labStatusFilter">Status</label><select id="labStatusFilter"><option value="">All statuses</option>{% for status in lab_statuses %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></div>
+            <div class="form-group"><label for="labDateFilter">Scheduled Date</label><input id="labDateFilter" type="date"></div>
+        </div>
+        <div class="lab-table-wrapper">
+            <table class="lab-table">
+                <thead><tr><th>Patient</th><th>Test</th><th>Scheduled</th><th>Status</th><th>Reference Range</th><th>Result</th><th>Actions</th></tr></thead>
+                <tbody id="labTestsBody"><tr><td colspan="7" class="empty-message">Loading tests...</td></tr></tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+{% if can_create %}
+<div id="bookingModal" class="modal">
+    <div class="modal-content">
+        <span class="close" id="closeBookingModal">&times;</span>
+        <h2>Book Laboratory Test</h2>
+        <form id="bookingForm">
+            {% if not is_patient %}<div class="form-group"><label for="bookingPatient">Patient</label><select id="bookingPatient" required><option value="">Select patient...</option>{% for patient in patients %}<option value="{{ patient.id }}">{{ patient.full_name }} ({{ patient.email }})</option>{% endfor %}</select></div>{% endif %}
+            <div class="form-group"><label for="bookingTestName">Test Name</label><input id="bookingTestName" maxlength="150" placeholder="Example: Complete Blood Count" required></div>
+            <div class="form-group"><label for="bookingTestType">Test Type</label><input id="bookingTestType" maxlength="100" placeholder="Example: Hematology" required></div>
+            <div class="form-group"><label for="bookingDate">Scheduled Date & Time</label><input id="bookingDate" type="datetime-local" required></div>
+            <div class="form-group"><label for="bookingRange">Reference Range</label><input id="bookingRange" maxlength="255" placeholder="Example: Hemoglobin 12-16 g/dL"></div>
+            <div class="form-group"><label for="bookingNotes">Notes</label><textarea id="bookingNotes" rows="3" maxlength="500"></textarea></div>
+            <button class="btn btn-primary" type="submit">Book Test</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if can_request %}
+<div id="requestModal" class="modal">
+    <div class="modal-content">
+        <span class="close" id="closeRequestModal">&times;</span>
+        <h2>Request Laboratory Test</h2>
+        <form id="requestForm">
+            <div class="form-group"><label for="requestPatient">Patient</label><select id="requestPatient" required><option value="">Select patient...</option>{% for patient in patients %}<option value="{{ patient.id }}">{{ patient.full_name }} ({{ patient.email }})</option>{% endfor %}</select></div>
+            <div class="form-group"><label for="requestTestName">Test Name</label><input id="requestTestName" maxlength="150" required></div>
+            <div class="form-group"><label for="requestTestType">Test Type</label><input id="requestTestType" maxlength="100" required></div>
+            <div class="form-group"><label for="requestDate">Scheduled Date & Time</label><input id="requestDate" type="datetime-local" required></div>
+            <div class="form-group"><label for="requestRange">Reference Range</label><input id="requestRange" maxlength="255"></div>
+            <div class="form-group"><label for="requestNotes">Clinical Notes</label><textarea id="requestNotes" rows="3" maxlength="500"></textarea></div>
+            <button class="btn btn-primary" type="submit">Submit Request</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if can_process %}
+<div id="resultModal" class="modal">
+    <div class="modal-content">
+        <span class="close" id="closeResultModal">&times;</span>
+        <h2>Update Lab Test</h2>
+        <form id="resultForm">
+            <input type="hidden" id="resultTestId">
+            <div class="form-group"><label for="resultStatus">Status</label><select id="resultStatus">{% for status in lab_statuses %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></div>
+            <div class="form-group"><label for="resultRange">Reference Range</label><input id="resultRange" maxlength="255"></div>
+            <div class="form-group"><label for="resultValue">Result</label><textarea id="resultValue" rows="5" placeholder="Enter measured values and interpretation"></textarea></div>
+            <div class="form-group"><label for="resultNotes">Lab Notes</label><textarea id="resultNotes" rows="3"></textarea></div>
+            <button class="btn btn-primary" type="submit">Save Update</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<script>
+const labMessage = document.getElementById('labMessage');
+const labSearch = document.getElementById('labSearch');
+const labStatusFilter = document.getElementById('labStatusFilter');
+const labDateFilter = document.getElementById('labDateFilter');
+const canProcessLabs = {{ 'true' if can_process else 'false' }};
+
+function escapeLabHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[character]));
+}
+
+function showLabMessage(message, type = 'success') {
+    labMessage.textContent = message;
+    labMessage.className = `alert alert-${type}`;
+    labMessage.hidden = false;
+    window.setTimeout(() => { labMessage.hidden = true; }, 5000);
+}
+
+function updateLabStats(statistics) {
+    document.getElementById('totalTests').textContent = statistics.total;
+    document.getElementById('pendingTests').textContent = statistics.pending;
+    document.getElementById('completedTests').textContent = statistics.completed;
+    document.getElementById('todayTests').textContent = statistics.today;
+}
+
+function statusClass(status) {
+    return status.toLowerCase().replace(/\s+/g, '-');
+}
+
+function renderLabTests(tests) {
+    const body = document.getElementById('labTestsBody');
+    if (!tests.length) {
+        body.innerHTML = '<tr><td colspan="7" class="empty-message">No laboratory tests match the current filters.</td></tr>';
+        return;
+    }
+    body.innerHTML = tests.map(test => {
+        const reportLink = test.status === 'Completed' ? `<a class="btn btn-small btn-primary" href="/lab-tests/${test.id}/report">Report</a>` : '';
+        const updateButton = canProcessLabs ? `<button class="btn btn-small btn-secondary" type="button" onclick="openResultModal(${test.id})">Update</button>` : '';
+        return `<tr>
+            <td><strong>${escapeLabHtml(test.patient_name)}</strong><small>${escapeLabHtml(test.patient_email)}</small></td>
+            <td><strong>${escapeLabHtml(test.test_name)}</strong><small>${escapeLabHtml(test.test_type)}</small></td>
+            <td>${new Date(test.scheduled_date).toLocaleString()}</td>
+            <td><span class="lab-status lab-status-${statusClass(test.status)}">${escapeLabHtml(test.status)}</span></td>
+            <td>${escapeLabHtml(test.reference_range || 'Not specified')}</td>
+            <td>${escapeLabHtml(test.result || 'Awaiting result')}</td>
+            <td class="lab-actions">${reportLink}${updateButton}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function loadLabTests() {
+    const params = new URLSearchParams({q: labSearch.value.trim(), status: labStatusFilter.value, date: labDateFilter.value});
+    try {
+        const response = await fetch(`/api/lab-tests?${params}`);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to load laboratory tests.');
+        updateLabStats(result.statistics);
+        renderLabTests(result.tests);
+    } catch (error) {
+        showLabMessage(error.message, 'danger');
+    }
+}
+
+async function submitBooking(event) {
+    event.preventDefault();
+    const patientField = document.getElementById('bookingPatient');
+    const payload = {test_name: document.getElementById('bookingTestName').value, test_type: document.getElementById('bookingTestType').value, scheduled_date: document.getElementById('bookingDate').value, reference_range: document.getElementById('bookingRange').value, notes: document.getElementById('bookingNotes').value};
+    if (patientField) payload.patient_id = patientField.value;
+    try {
+        const response = await fetch('/api/lab-tests', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to book the test.');
+        document.getElementById('bookingModal').style.display = 'none';
+        event.target.reset();
+        showLabMessage(result.message);
+        loadLabTests();
+    } catch (error) {
+        showLabMessage(error.message, 'danger');
+    }
+}
+
+async function submitDoctorRequest(event) {
+    event.preventDefault();
+    const payload = {patient_id: document.getElementById('requestPatient').value, test_name: document.getElementById('requestTestName').value, test_type: document.getElementById('requestTestType').value, scheduled_date: document.getElementById('requestDate').value, reference_range: document.getElementById('requestRange').value, notes: document.getElementById('requestNotes').value};
+    try {
+        const response = await fetch('/api/lab-tests/request', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to request the test.');
+        document.getElementById('requestModal').style.display = 'none';
+        event.target.reset();
+        showLabMessage(result.message);
+        loadLabTests();
+    } catch (error) {
+        showLabMessage(error.message, 'danger');
+    }
+}
+
+async function openResultModal(testId) {
+    try {
+        const response = await fetch(`/api/lab-tests/${testId}`);
+        const test = await response.json();
+        if (!response.ok) throw new Error(test.error || 'Unable to load the test.');
+        document.getElementById('resultTestId').value = test.id;
+        document.getElementById('resultStatus').value = test.status;
+        document.getElementById('resultRange').value = test.reference_range || '';
+        document.getElementById('resultValue').value = test.result || '';
+        document.getElementById('resultNotes').value = test.notes || '';
+        document.getElementById('resultModal').style.display = 'block';
+    } catch (error) {
+        showLabMessage(error.message, 'danger');
+    }
+}
+
+async function submitResult(event) {
+    event.preventDefault();
+    const testId = document.getElementById('resultTestId').value;
+    const payload = {status: document.getElementById('resultStatus').value, reference_range: document.getElementById('resultRange').value, result: document.getElementById('resultValue').value, notes: document.getElementById('resultNotes').value};
+    try {
+        const response = await fetch(`/api/lab-tests/${testId}`, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to update the test.');
+        document.getElementById('resultModal').style.display = 'none';
+        showLabMessage(result.message);
+        loadLabTests();
+    } catch (error) {
+        showLabMessage(error.message, 'danger');
+    }
+}
+
+function setMinimumDate(inputId) {
+    const input = document.getElementById(inputId);
+    if (input) input.min = new Date(Date.now() + 60000).toISOString().slice(0, 16);
+}
+
+{% if can_create %}
+document.getElementById('openBookingBtn').addEventListener('click', () => { document.getElementById('bookingModal').style.display = 'block'; });
+document.getElementById('closeBookingModal').addEventListener('click', () => { document.getElementById('bookingModal').style.display = 'none'; });
+document.getElementById('bookingForm').addEventListener('submit', submitBooking);
+setMinimumDate('bookingDate');
+{% endif %}
+{% if can_request %}
+document.getElementById('openRequestBtn').addEventListener('click', () => { document.getElementById('requestModal').style.display = 'block'; });
+document.getElementById('closeRequestModal').addEventListener('click', () => { document.getElementById('requestModal').style.display = 'none'; });
+document.getElementById('requestForm').addEventListener('submit', submitDoctorRequest);
+setMinimumDate('requestDate');
+{% endif %}
+{% if can_process %}
+document.getElementById('closeResultModal').addEventListener('click', () => { document.getElementById('resultModal').style.display = 'none'; });
+document.getElementById('resultForm').addEventListener('submit', submitResult);
+{% endif %}
+
+[labSearch, labStatusFilter, labDateFilter].forEach(input => input.addEventListener('input', loadLabTests));
+window.addEventListener('click', event => document.querySelectorAll('.modal').forEach(modal => { if (event.target === modal) modal.style.display = 'none'; }));
+loadLabTests();
+</script>
+{% endblock %}

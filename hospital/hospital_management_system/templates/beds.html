@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block title %}Bed Management - MediCare Hospital{% endblock %}
+
+{% block content %}
+<div class="container bed-management-page">
+    <div class="page-header">
+        <h1>Bed Management</h1>
+        <p>Monitor hospital capacity and manage patient bed assignments</p>
+    </div>
+
+    <div id="bedMessage" class="alert" role="status" hidden></div>
+
+    <section class="bed-dashboard-panel">
+        <div class="bed-panel-header">
+            <div>
+                <h2>Capacity Overview</h2>
+                <p>Current bed availability across all departments and wards.</p>
+            </div>
+            <button class="btn btn-primary" type="button" id="addBedBtn"><i class="fas fa-plus"></i> Add Bed</button>
+        </div>
+        <div class="bed-stats-grid">
+            <div class="bed-stat-card bed-stat-total"><i class="fas fa-bed"></i><div><span>Total Beds</span><strong id="totalBeds">{{ statistics.total }}</strong></div></div>
+            <div class="bed-stat-card bed-stat-available"><i class="fas fa-check-circle"></i><div><span>Available</span><strong id="availableBeds">{{ statistics.available }}</strong></div></div>
+            <div class="bed-stat-card bed-stat-occupied"><i class="fas fa-user-injured"></i><div><span>Occupied</span><strong id="occupiedBeds">{{ statistics.occupied }}</strong></div></div>
+            <div class="bed-stat-card bed-stat-reserved"><i class="fas fa-bookmark"></i><div><span>Reserved</span><strong id="reservedBeds">{{ statistics.reserved }}</strong></div></div>
+            <div class="bed-stat-card bed-stat-maintenance"><i class="fas fa-tools"></i><div><span>Maintenance</span><strong id="maintenanceBeds">{{ statistics.maintenance }}</strong></div></div>
+        </div>
+    </section>
+
+    <section class="bed-list-panel">
+        <div class="bed-panel-header">
+            <div>
+                <h2>Bed Directory</h2>
+                <p>Search, filter, and update individual beds.</p>
+            </div>
+        </div>
+        <div class="bed-filters">
+            <div class="form-group"><label for="bedSearch">Search</label><input id="bedSearch" type="search" placeholder="Bed number, ward, or department"></div>
+            <div class="form-group"><label for="bedStatusFilter">Status</label><select id="bedStatusFilter"><option value="">All statuses</option>{% for status in bed_statuses %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></div>
+            <div class="form-group"><label for="bedDepartmentFilter">Department</label><select id="bedDepartmentFilter"><option value="">All departments</option></select></div>
+            <div class="form-group"><label for="bedWardFilter">Ward</label><select id="bedWardFilter"><option value="">All wards</option></select></div>
+        </div>
+        <div class="bed-table-wrapper">
+            <table class="bed-table">
+                <thead><tr><th>Bed</th><th>Department</th><th>Ward</th><th>Status</th><th>Patient</th><th>Assigned</th><th>Actions</th></tr></thead>
+                <tbody id="bedsBody"><tr><td colspan="7" class="empty-message">Loading beds...</td></tr></tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<div id="bedModal" class="modal">
+    <div class="modal-content">
+        <span class="close" id="closeBedModal">&times;</span>
+        <h2 id="bedModalTitle">Add Bed</h2>
+        <form id="bedForm">
+            <input type="hidden" id="bedId">
+            <div class="form-group"><label for="bedNumber">Bed Number</label><input id="bedNumber" maxlength="50" required></div>
+            <div class="form-group"><label for="bedDepartment">Department</label><input id="bedDepartment" maxlength="100" required></div>
+            <div class="form-group"><label for="bedWard">Ward</label><input id="bedWard" maxlength="100" required></div>
+            <div class="form-group"><label for="bedStatus">Status</label><select id="bedStatus" required>{% for status in bed_statuses %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></div>
+            <div class="form-group"><label for="bedNotes">Notes</label><textarea id="bedNotes" rows="3" maxlength="500"></textarea></div>
+            <button class="btn btn-primary" type="submit">Save Bed</button>
+        </form>
+    </div>
+</div>
+
+<div id="assignBedModal" class="modal">
+    <div class="modal-content">
+        <span class="close" id="closeAssignModal">&times;</span>
+        <h2>Assign Bed <span id="assignBedLabel"></span></h2>
+        <form id="assignBedForm">
+            <input type="hidden" id="assignBedId">
+            <div class="form-group"><label for="assignPatient">Patient</label><select id="assignPatient" required><option value="">Select patient...</option>{% for patient in patients %}<option value="{{ patient.id }}">{{ patient.full_name }} ({{ patient.email }})</option>{% endfor %}</select></div>
+            <button class="btn btn-primary" type="submit">Assign Bed</button>
+        </form>
+    </div>
+</div>
+
+<script>
+const bedMessage = document.getElementById('bedMessage');
+const bedModal = document.getElementById('bedModal');
+const assignBedModal = document.getElementById('assignBedModal');
+const bedSearch = document.getElementById('bedSearch');
+const bedStatusFilter = document.getElementById('bedStatusFilter');
+const bedDepartmentFilter = document.getElementById('bedDepartmentFilter');
+const bedWardFilter = document.getElementById('bedWardFilter');
+
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[character]));
+}
+
+function showBedMessage(message, type = 'success') {
+    bedMessage.textContent = message;
+    bedMessage.className = `alert alert-${type}`;
+    bedMessage.hidden = false;
+    window.setTimeout(() => { bedMessage.hidden = true; }, 5000);
+}
+
+function updateBedStats(statistics) {
+    document.getElementById('totalBeds').textContent = statistics.total;
+    document.getElementById('availableBeds').textContent = statistics.available;
+    document.getElementById('occupiedBeds').textContent = statistics.occupied;
+    document.getElementById('reservedBeds').textContent = statistics.reserved;
+    document.getElementById('maintenanceBeds').textContent = statistics.maintenance;
+}
+
+function updateFilterOptions(select, values, label, selectedValue) {
+    select.innerHTML = `<option value="">All ${label}</option>`;
+    values.forEach(value => {
+        select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`);
+    });
+    select.value = values.includes(selectedValue) ? selectedValue : '';
+}
+
+function renderBeds(beds) {
+    const body = document.getElementById('bedsBody');
+    if (!beds.length) {
+        body.innerHTML = '<tr><td colspan="7" class="empty-message">No beds match the current filters.</td></tr>';
+        return;
+    }
+    body.innerHTML = beds.map(bed => {
+        const actions = bed.status === 'Occupied'
+            ? `<button class="btn btn-small btn-warning" type="button" onclick="releaseBed(${bed.id})">Release</button>`
+            : bed.status === 'Available' || bed.status === 'Reserved'
+                ? `<button class="btn btn-small btn-success" type="button" onclick="openAssignModal(${bed.id}, '${escapeHtml(bed.bed_number)}')">Assign</button>`
+                : '';
+        return `<tr>
+            <td><strong>${escapeHtml(bed.bed_number)}</strong></td>
+            <td>${escapeHtml(bed.department)}</td>
+            <td>${escapeHtml(bed.ward)}</td>
+            <td><span class="bed-status bed-status-${bed.status.toLowerCase()}">${escapeHtml(bed.status)}</span></td>
+            <td>${escapeHtml(bed.patient_name || 'Unassigned')}</td>
+            <td>${bed.assigned_at ? new Date(bed.assigned_at).toLocaleDateString() : '-'}</td>
+            <td class="bed-actions">${actions}<button class="btn btn-small btn-secondary" type="button" onclick="openBedModal(${bed.id})">Edit</button><button class="btn btn-small btn-danger" type="button" onclick="deleteBed(${bed.id})">Delete</button></td>
+        </tr>`;
+    }).join('');
+}
+
+async function loadBeds() {
+    const params = new URLSearchParams({q: bedSearch.value.trim(), status: bedStatusFilter.value, department: bedDepartmentFilter.value, ward: bedWardFilter.value});
+    try {
+        const response = await fetch(`/api/beds?${params}`);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to load beds.');
+        updateBedStats(result.statistics);
+        updateFilterOptions(bedDepartmentFilter, result.departments, 'departments', bedDepartmentFilter.value);
+        updateFilterOptions(bedWardFilter, result.wards, 'wards', bedWardFilter.value);
+        renderBeds(result.beds);
+    } catch (error) {
+        showBedMessage(error.message, 'danger');
+    }
+}
+
+function openBedModal(bedId = null) {
+    document.getElementById('bedForm').reset();
+    document.getElementById('bedId').value = bedId || '';
+    document.getElementById('bedModalTitle').textContent = bedId ? 'Edit Bed' : 'Add Bed';
+    if (bedId) {
+        fetch(`/api/beds?${new URLSearchParams({q: ''})}`).then(response => response.json()).then(result => {
+            const bed = result.beds.find(item => item.id === bedId);
+            if (!bed) throw new Error('Bed not found.');
+            document.getElementById('bedNumber').value = bed.bed_number;
+            document.getElementById('bedDepartment').value = bed.department;
+            document.getElementById('bedWard').value = bed.ward;
+            document.getElementById('bedStatus').value = bed.status;
+            document.getElementById('bedNotes').value = bed.notes || '';
+            bedModal.style.display = 'block';
+        }).catch(error => showBedMessage(error.message, 'danger'));
+    } else {
+        bedModal.style.display = 'block';
+    }
+}
+
+async function submitBed(event) {
+    event.preventDefault();
+    const bedId = document.getElementById('bedId').value;
+    const payload = {bed_number: document.getElementById('bedNumber').value, department: document.getElementById('bedDepartment').value, ward: document.getElementById('bedWard').value, status: document.getElementById('bedStatus').value, notes: document.getElementById('bedNotes').value};
+    try {
+        const response = await fetch(bedId ? `/api/beds/${bedId}` : '/api/beds', {method: bedId ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to save bed.');
+        bedModal.style.display = 'none';
+        showBedMessage(result.message);
+        loadBeds();
+    } catch (error) {
+        showBedMessage(error.message, 'danger');
+    }
+}
+
+function openAssignModal(bedId, bedNumber) {
+    document.getElementById('assignBedId').value = bedId;
+    document.getElementById('assignBedLabel').textContent = `(${bedNumber})`;
+    document.getElementById('assignPatient').value = '';
+    assignBedModal.style.display = 'block';
+}
+
+async function assignBed(event) {
+    event.preventDefault();
+    try {
+        const response = await fetch(`/api/beds/${document.getElementById('assignBedId').value}/assign`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({patient_id: document.getElementById('assignPatient').value})});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to assign bed.');
+        assignBedModal.style.display = 'none';
+        showBedMessage(result.message);
+        loadBeds();
+    } catch (error) {
+        showBedMessage(error.message, 'danger');
+    }
+}
+
+async function releaseBed(bedId) {
+    if (!window.confirm('Release this occupied bed?')) return;
+    try {
+        const response = await fetch(`/api/beds/${bedId}/release`, {method: 'POST'});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to release bed.');
+        showBedMessage(result.message);
+        loadBeds();
+    } catch (error) {
+        showBedMessage(error.message, 'danger');
+    }
+}
+
+async function deleteBed(bedId) {
+    if (!window.confirm('Delete this bed?')) return;
+    try {
+        const response = await fetch(`/api/beds/${bedId}`, {method: 'DELETE'});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to delete bed.');
+        showBedMessage(result.message);
+        loadBeds();
+    } catch (error) {
+        showBedMessage(error.message, 'danger');
+    }
+}
+
+document.getElementById('addBedBtn').addEventListener('click', () => openBedModal());
+document.getElementById('closeBedModal').addEventListener('click', () => { bedModal.style.display = 'none'; });
+document.getElementById('closeAssignModal').addEventListener('click', () => { assignBedModal.style.display = 'none'; });
+document.getElementById('bedForm').addEventListener('submit', submitBed);
+document.getElementById('assignBedForm').addEventListener('submit', assignBed);
+[bedSearch, bedStatusFilter, bedDepartmentFilter, bedWardFilter].forEach(input => input.addEventListener('input', loadBeds));
+window.addEventListener('click', event => {
+    if (event.target === bedModal) bedModal.style.display = 'none';
+    if (event.target === assignBedModal) assignBedModal.style.display = 'none';
+});
+loadBeds();
+</script>
+{% endblock %}
