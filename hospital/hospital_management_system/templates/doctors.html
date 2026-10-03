@@ -144,6 +144,7 @@ function loadDoctors() {
                 card.className = 'doctor-card-large';
                 const managementActions = isAdmin ? `
                             <button class="btn btn-secondary" onclick="editDoctor(${doctor.id})">Edit</button>
+                            <button class="btn btn-secondary" onclick="createDoctorAccount(${doctor.id})">Create login</button>
                             <button class="btn btn-danger" onclick="deleteDoctor(${doctor.id})">Delete</button>
                         ` : '';
                 card.innerHTML = `
@@ -169,6 +170,20 @@ function loadDoctors() {
                 grid.appendChild(card);
             });
         });
+}
+
+async function createDoctorAccount(id) {
+    const password = window.prompt('Set a temporary password (minimum 6 characters):');
+    if (!password) return;
+    const username = window.prompt('Username (leave blank to use the doctor email):') || '';
+    try {
+        const response = await fetch(`/api/doctors/${id}/account`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username, password}) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to create doctor login.');
+        window.alert(`Doctor login created. Username: ${result.username}`);
+    } catch (error) {
+        window.alert(error.message);
+    }
 }
 
 function setupDoctorForm() {

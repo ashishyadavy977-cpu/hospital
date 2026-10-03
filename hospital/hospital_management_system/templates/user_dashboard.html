@@ -41,7 +41,7 @@
                 <li><a href="#prescriptions" class="menu-link" onclick="showSection('prescriptions')">
                     <i class="fas fa-pills"></i> Prescriptions
                 </a></li>
-                <li><a href="#profile" class="menu-link" onclick="showSection('profile')">
+                <li><a href="{{ url_for('patient_profile_page') }}" class="menu-link">
                     <i class="fas fa-user"></i> My Profile
                 </a></li>
                 <li><a href="{{ url_for('logout') }}" class="menu-link logout">
@@ -246,6 +246,22 @@
                     <div class="form-group">
                         <label for="edit-medical-history">Medical History</label>
                         <textarea id="edit-medical-history" name="medical_history" rows="4">{{ user.medical_history or '' }}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-emergency-contact-name">Emergency Contact Name</label>
+                        <input id="edit-emergency-contact-name" name="emergency_contact_name" type="text" value="{{ user.emergency_contact_name or '' }}" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-emergency-contact-phone">Emergency Contact Phone</label>
+                        <input id="edit-emergency-contact-phone" name="emergency_contact_phone" type="tel" value="{{ user.emergency_contact_phone or '' }}" maxlength="20">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-blood-group">Blood Group</label>
+                        <input id="edit-blood-group" name="blood_group" type="text" value="{{ user.blood_group or '' }}" maxlength="10" placeholder="e.g. O+">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-allergies">Allergies</label>
+                        <textarea id="edit-allergies" name="allergies" rows="3">{{ user.allergies or '' }}</textarea>
                     </div>
                     <div class="profile-actions">
                         <button class="btn btn-primary" type="submit">Save Changes</button>

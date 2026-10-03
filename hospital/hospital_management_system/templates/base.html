@@ -40,10 +40,14 @@
                         <ul class="user-submenu">
                             {% if session.get('user_type') == 'admin' %}
                                 <li><a href="{{ url_for('admin_dashboard') }}"><i class="fas fa-lock"></i> Admin Dashboard</a></li>
+                                <li><a href="{{ url_for('analytics_page') }}"><i class="fas fa-chart-pie"></i> Analytics</a></li>
                                 <li><a href="{{ url_for('admin_reports') }}"><i class="fas fa-chart-bar"></i> Reports</a></li>
                                 <li><a href="{{ url_for('beds_page') }}"><i class="fas fa-bed"></i> Bed Management</a></li>
+                            {% elif session.get('user_type') == 'doctor' %}
+                                <li><a href="{{ url_for('doctor_dashboard') }}"><i class="fas fa-stethoscope"></i> Doctor Dashboard</a></li>
                             {% else %}
                                 <li><a href="{{ url_for('user_dashboard') }}"><i class="fas fa-dashboard"></i> My Dashboard</a></li>
+                                <li><a href="{{ url_for('patient_profile_page') }}"><i class="fas fa-id-card"></i> Patient Profile</a></li>
                             {% endif %}
                             <li><a href="{{ url_for('change_password') }}"><i class="fas fa-key"></i> Change Password</a></li>
                             <li><a href="{{ url_for('logout') }}"><i class="fas fa-sign-out-alt"></i> Logout</a></li>

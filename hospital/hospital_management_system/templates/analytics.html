@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Hospital Analytics - MediCare Hospital{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/analytics.css') }}">{% endblock %}
+
+{% block content %}
+<main class="analytics-page" data-analytics-page>
+    <header class="analytics-header">
+        <div>
+            <p class="analytics-kicker">Operations intelligence</p>
+            <h1>Hospital analytics</h1>
+            <p class="analytics-subtitle">A live view of patients, care delivery, capacity, and financial performance.</p>
+        </div>
+        <a class="analytics-back" href="{{ url_for('admin_dashboard') }}"><i class="fas fa-arrow-left"></i> Admin dashboard</a>
+    </header>
+
+    <section class="analytics-filters" aria-label="Analytics filters">
+        <div class="filter-field"><label for="analyticsStart">From</label><input id="analyticsStart" type="date"></div>
+        <div class="filter-field"><label for="analyticsEnd">To</label><input id="analyticsEnd" type="date"></div>
+        <div class="filter-field filter-department"><label for="analyticsDepartment">Department</label><select id="analyticsDepartment"><option value="">All departments</option>{% for department in departments %}<option value="{{ department.id }}">{{ department.name }}</option>{% endfor %}</select></div>
+        <button class="analytics-apply" type="button" data-analytics-apply><i class="fas fa-sliders-h"></i> Apply filters</button>
+    </section>
+
+    <div class="analytics-status" data-analytics-status role="status" aria-live="polite"></div>
+    <section class="analytics-cards" data-analytics-cards aria-label="Key metrics">
+        {% for card in [('total_patients', 'Total patients', 'fa-users'), ('new_patients', 'New patients', 'fa-user-plus'), ('today_appointments', "Today's appointments", 'fa-calendar-day'), ('completed_appointments', 'Completed appointments', 'fa-calendar-check'), ('revenue', 'Revenue', 'fa-dollar-sign'), ('pending_payments', 'Pending payments', 'fa-file-invoice-dollar'), ('available_beds', 'Available beds', 'fa-bed'), ('occupied_beds', 'Occupied beds', 'fa-procedures'), ('pharmacy_stock', 'Pharmacy stock', 'fa-pills'), ('pending_lab_tests', 'Pending lab tests', 'fa-flask')] %}
+        <article class="analytics-card"><div class="analytics-card-icon"><i class="fas {{ card[2] }}"></i></div><div><p>{{ card[1] }}</p><strong data-metric="{{ card[0] }}">--</strong></div></article>
+        {% endfor %}
+    </section>
+
+    <section class="analytics-grid" data-analytics-charts>
+        <article class="chart-panel"><div class="chart-heading"><div><h2>Patients per month</h2><p>New patient registrations in the selected period</p></div></div><div class="chart-wrap"><canvas id="patientsChart"></canvas></div><div class="chart-empty">No patient registrations in this period.</div></article>
+        <article class="chart-panel"><div class="chart-heading"><div><h2>Appointments per month</h2><p>Scheduled appointments by month</p></div></div><div class="chart-wrap"><canvas id="appointmentsChart"></canvas></div><div class="chart-empty">No appointments in this period.</div></article>
+        <article class="chart-panel"><div class="chart-heading"><div><h2>Revenue per month</h2><p>Paid bills recorded in the selected period</p></div></div><div class="chart-wrap"><canvas id="revenueChart"></canvas></div><div class="chart-empty">No paid revenue in this period.</div></article>
+        <article class="chart-panel"><div class="chart-heading"><div><h2>Department-wise patients</h2><p>Unique patients seen by department</p></div></div><div class="chart-wrap chart-doughnut-wrap"><canvas id="departmentChart"></canvas></div><div class="chart-empty">No department patient data.</div></article>
+        <article class="chart-panel"><div class="chart-heading"><div><h2>Appointment status</h2><p>Distribution across the selected period</p></div></div><div class="chart-wrap chart-doughnut-wrap"><canvas id="statusChart"></canvas></div><div class="chart-empty">No appointment statuses in this period.</div></article>
+        <article class="chart-panel"><div class="chart-heading"><div><h2>Bed occupancy</h2><p>Current bed availability</p></div></div><div class="chart-wrap chart-doughnut-wrap"><canvas id="bedChart"></canvas></div><div class="chart-empty">No bed records found.</div></article>
+    </section>
+</main>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/analytics.js') }}"></script>
+{% endblock %}

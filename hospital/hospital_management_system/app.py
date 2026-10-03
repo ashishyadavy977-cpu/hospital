@@ -7,7 +7,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from functools import wraps
 import json
-from sqlalchemy import inspect, text, func, distinct
+from sqlalchemy import inspect, text, func, distinct, select
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///hospital.db'
@@ -237,6 +237,10 @@ class User(db.Model):
     date_of_birth = db.Column(db.Date)
     address = db.Column(db.Text)
     medical_history = db.Column(db.Text)
+    emergency_contact_name = db.Column(db.String(100))
+    emergency_contact_phone = db.Column(db.String(20))
+    blood_group = db.Column(db.String(10))
+    allergies = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.now)
     appointments = db.relationship('Appointment', backref='user', foreign_keys='Appointment.user_id', cascade='all, delete-orphan')
     bills = db.relationship('Bill', backref='user', foreign_keys='Bill.user_id', cascade='all, delete-orphan')
@@ -274,6 +278,46 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def current_doctor(user=None):
+    user = user or User.query.get(session.get('user_id'))
+    if not user or user.user_type != 'doctor' or not user.email:
+        return None
+    return Doctor.query.filter(db.func.lower(Doctor.email) == user.email.lower()).first()
+
+def doctor_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('Please log in first', 'danger')
+            return redirect(url_for('login'))
+        doctor = current_doctor()
+        if not doctor:
+            flash('Doctor profile is not linked to this account', 'danger')
+            return redirect(url_for('index'))
+        return f(*args, doctor=doctor, **kwargs)
+    return decorated_function
+
+def doctor_api_required():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Authentication required'}), None
+    user = User.query.get(session['user_id'])
+    doctor = current_doctor(user)
+    if not doctor:
+        return jsonify({'error': 'Doctor access required'}), None
+    return None, doctor
+
+def doctor_patient_appointment(doctor_id, patient_id):
+    return Appointment.query.filter(
+        Appointment.doctor_id == doctor_id,
+        Appointment.user_id == patient_id
+    ).first()
+
+def doctor_patient_ids(doctor_id):
+    return select(Appointment.user_id).where(
+        Appointment.doctor_id == doctor_id,
+        Appointment.user_id.isnot(None)
+    ).distinct()
+
 def admin_api_required():
     if 'user_id' not in session:
         return jsonify({'error': 'Authentication required'}), 401
@@ -291,6 +335,8 @@ def lab_api_required(allowed_roles):
     user = User.query.get(session['user_id'])
     if not user or user.user_type not in allowed_roles:
         return jsonify({'error': 'Insufficient permissions'}), 403
+    if user.user_type == 'doctor' and not current_doctor(user):
+        return jsonify({'error': 'Doctor profile is not linked to this account'}), 403
     return None
 
 def lab_payload(test):
@@ -555,8 +601,14 @@ def login():
             
             if user.user_type == 'admin':
                 return redirect(url_for('admin_dashboard'))
-            else:
+            doctor = current_doctor(user) if user.user_type == 'doctor' else None
+            if doctor:
+                session['doctor_id'] = doctor.id
+                return redirect(url_for('doctor_dashboard'))
+            if user.user_type == 'patient':
                 return redirect(url_for('user_dashboard'))
+            session.clear()
+            flash('This account is not linked to a supported clinical role.', 'danger')
         else:
             flash('Invalid username or password', 'danger')
     
@@ -596,7 +648,11 @@ def change_password():
             user.set_password(new_password)
             db.session.commit()
             flash('Password changed successfully', 'success')
-            return redirect(url_for('user_dashboard' if user.user_type == 'patient' else 'admin_dashboard'))
+            if user.user_type == 'patient':
+                return redirect(url_for('user_dashboard'))
+            if user.user_type == 'doctor':
+                return redirect(url_for('doctor_dashboard'))
+            return redirect(url_for('admin_dashboard'))
     return render_template('change_password.html')
 
 @app.route('/forgot-password', methods=['GET', 'POST'])
@@ -654,6 +710,100 @@ def user_dashboard():
     
     return render_template('user_dashboard.html', user=user, appointments=appointments, bills=bills, service_requests=service_requests, medical_records=medical_records, prescriptions=prescriptions)
 
+def patient_profile_access(patient_id=None):
+    viewer = User.query.get(session.get('user_id'))
+    patient = User.query.filter_by(id=patient_id or session.get('user_id'), user_type='patient').first()
+    if not viewer or not patient:
+        return None, None, ('Patient profile not found', 404)
+    if patient.id == viewer.id or viewer.user_type == 'admin':
+        return viewer, patient, None
+    doctor = current_doctor(viewer) if viewer.user_type == 'doctor' else None
+    if doctor and doctor_patient_appointment(doctor.id, patient.id):
+        return viewer, patient, None
+    return viewer, None, ('Access denied', 403)
+
+def patient_profile_data(patient):
+    appointments = Appointment.query.filter_by(user_id=patient.id).order_by(Appointment.appointment_date.desc()).all()
+    records = MedicalRecord.query.filter_by(patient_id=patient.id).order_by(MedicalRecord.created_at.desc()).all()
+    prescriptions = Prescription.query.filter_by(patient_id=patient.id).order_by(Prescription.created_at.desc()).all()
+    lab_reports = LabTest.query.filter_by(patient_id=patient.id).order_by(LabTest.scheduled_date.desc()).all()
+    bills = Bill.query.filter_by(user_id=patient.id).order_by(Bill.created_at.desc()).all()
+    beds = Bed.query.filter_by(patient_id=patient.id).order_by(Bed.assigned_at.desc()).all()
+    diagnoses = [{'date': record.created_at, 'title': record.title, 'value': record.diagnosis} for record in records if record.diagnosis]
+    diagnoses += [{'date': prescription.created_at, 'title': f'Prescription: {prescription.medicine}', 'value': prescription.diagnosis} for prescription in prescriptions if prescription.diagnosis]
+    timeline = [{'date': patient.created_at, 'type': 'registration', 'title': 'Patient registered', 'detail': 'Patient profile created'}]
+    timeline += [{'date': appointment.appointment_date, 'type': 'appointment', 'title': 'Appointment', 'detail': f'{appointment.doctor.name} - {appointment.status}'} for appointment in appointments]
+    timeline += [{'date': record.created_at, 'type': 'record', 'title': record.title, 'detail': record.diagnosis or 'Medical record added'} for record in records]
+    timeline += [{'date': prescription.created_at, 'type': 'prescription', 'title': f'Prescription: {prescription.medicine}', 'detail': prescription.doctor.name if prescription.doctor else prescription.signature_name or 'Attending doctor'} for prescription in prescriptions]
+    timeline += [{'date': test.completed_at or test.created_at, 'type': 'lab', 'title': f'Lab test: {test.test_name}', 'detail': test.status} for test in lab_reports]
+    timeline += [{'date': bill.created_at, 'type': 'billing', 'title': 'Billing record', 'detail': f'{bill.status} - ${bill.amount:.2f}'} for bill in bills]
+    timeline += [{'date': bed.assigned_at or bed.created_at, 'type': 'bed', 'title': f'Bed assignment: {bed.bed_number}', 'detail': f'{bed.ward} - {bed.status}'} for bed in beds]
+    timeline.sort(key=lambda event: event['date'] or datetime.min, reverse=True)
+    return {'appointments': appointments, 'records': records, 'prescriptions': prescriptions, 'lab_reports': lab_reports, 'bills': bills, 'beds': beds, 'diagnoses': sorted(diagnoses, key=lambda item: item['date'] or datetime.min, reverse=True), 'timeline': timeline}
+
+@app.route('/patient-profile')
+@app.route('/patient-profile/<int:patient_id>')
+@login_required
+def patient_profile_page(patient_id=None):
+    viewer, patient, access_error = patient_profile_access(patient_id)
+    if access_error:
+        return redirect(url_for('index'))
+    data = patient_profile_data(patient)
+    return render_template('patient_profile.html', viewer=viewer, patient=patient, can_edit=viewer.id == patient.id, **data)
+
+@app.route('/api/patient-profile/<int:patient_id>')
+@login_required
+def api_patient_profile(patient_id):
+    viewer, patient, access_error = patient_profile_access(patient_id)
+    if access_error:
+        return jsonify({'error': access_error[0]}), access_error[1]
+    data = patient_profile_data(patient)
+    return jsonify({
+        'patient': {'id': patient.id, 'full_name': patient.full_name, 'email': patient.email, 'phone': patient.phone, 'date_of_birth': patient.date_of_birth.isoformat() if patient.date_of_birth else None, 'address': patient.address, 'emergency_contact_name': patient.emergency_contact_name, 'emergency_contact_phone': patient.emergency_contact_phone, 'blood_group': patient.blood_group, 'allergies': patient.allergies, 'medical_history': patient.medical_history},
+        'appointments': [{'date': item.appointment_date.isoformat(), 'doctor': item.doctor.name, 'status': item.status, 'reason': item.reason} for item in data['appointments']],
+        'timeline': [{'date': item['date'].isoformat() if item['date'] else None, 'type': item['type'], 'title': item['title'], 'detail': item['detail']} for item in data['timeline']]
+    })
+
+@app.route('/doctor-dashboard')
+@doctor_required
+def doctor_dashboard(doctor):
+    today_start = datetime.combine(date.today(), datetime.min.time())
+    tomorrow = today_start + timedelta(days=1)
+    doctor_appointments = Appointment.query.filter_by(doctor_id=doctor.id)
+    todays_appointments = doctor_appointments.filter(Appointment.appointment_date >= today_start, Appointment.appointment_date < tomorrow).order_by(Appointment.appointment_date).all()
+    upcoming_appointments = doctor_appointments.filter(Appointment.appointment_date >= tomorrow).order_by(Appointment.appointment_date).limit(12).all()
+    waiting_patients = [appointment for appointment in todays_appointments if appointment.queue_status == 'Waiting']
+    completed_consultations = [appointment for appointment in todays_appointments if appointment.queue_status == 'Completed' or appointment.status == 'Completed']
+    patient_ids = doctor_patient_ids(doctor.id)
+    patients = User.query.filter(User.id.in_(patient_ids), User.user_type == 'patient').order_by(User.full_name).all()
+    recent_records = MedicalRecord.query.filter(MedicalRecord.patient_id.in_(patient_ids)).order_by(MedicalRecord.created_at.desc()).limit(8).all()
+    lab_reports = LabTest.query.filter(LabTest.patient_id.in_(patient_ids), LabTest.status == 'Completed').order_by(LabTest.completed_at.desc(), LabTest.created_at.desc()).limit(8).all()
+    prescriptions = Prescription.query.filter_by(doctor_id=doctor.id).order_by(Prescription.created_at.desc()).limit(8).all()
+    return render_template('doctor_dashboard.html', doctor=doctor, department=doctor.department, todays_appointments=todays_appointments, upcoming_appointments=upcoming_appointments, waiting_patients=waiting_patients, completed_consultations=completed_consultations, patients=patients, recent_records=recent_records, lab_reports=lab_reports, prescriptions=prescriptions)
+
+@app.route('/api/doctor/patients/<int:patient_id>')
+@login_required
+def doctor_patient_profile(patient_id):
+    access_error, doctor = doctor_api_required()
+    if access_error:
+        return access_error
+    if not doctor_patient_appointment(doctor.id, patient_id):
+        return jsonify({'error': 'Patient is outside your care scope'}), 403
+    patient = User.query.filter_by(id=patient_id, user_type='patient').first()
+    if not patient:
+        return jsonify({'error': 'Patient not found'}), 404
+    return jsonify({
+        'id': patient.id,
+        'full_name': patient.full_name,
+        'email': patient.email,
+        'phone': patient.phone,
+        'date_of_birth': patient.date_of_birth.isoformat() if patient.date_of_birth else None,
+        'address': patient.address,
+        'medical_history': patient.medical_history,
+        'records': [{'title': record.title, 'diagnosis': record.diagnosis, 'notes': record.notes, 'created_at': record.created_at.isoformat()} for record in MedicalRecord.query.filter_by(patient_id=patient.id).order_by(MedicalRecord.created_at.desc()).all()],
+        'appointments': [{'date': appointment.appointment_date.isoformat(), 'status': appointment.status, 'reason': appointment.reason} for appointment in Appointment.query.filter_by(doctor_id=doctor.id, user_id=patient.id).order_by(Appointment.appointment_date.desc()).all()]
+    })
+
 @app.route('/admin-dashboard')
 @admin_required
 def admin_dashboard():
@@ -704,7 +854,11 @@ def api_user_profile():
             'phone': user.phone,
             'date_of_birth': user.date_of_birth.isoformat() if user.date_of_birth else None,
             'address': user.address,
-            'medical_history': user.medical_history
+            'medical_history': user.medical_history,
+            'emergency_contact_name': user.emergency_contact_name,
+            'emergency_contact_phone': user.emergency_contact_phone,
+            'blood_group': user.blood_group,
+            'allergies': user.allergies
         })
     
     elif request.method == 'PUT':
@@ -713,6 +867,10 @@ def api_user_profile():
         user.phone = data.get('phone', user.phone)
         user.address = data.get('address', user.address)
         user.medical_history = data.get('medical_history', user.medical_history)
+        user.emergency_contact_name = data.get('emergency_contact_name', user.emergency_contact_name)
+        user.emergency_contact_phone = data.get('emergency_contact_phone', user.emergency_contact_phone)
+        user.blood_group = data.get('blood_group', user.blood_group)
+        user.allergies = data.get('allergies', user.allergies)
         
         if data.get('date_of_birth'):
             from datetime import datetime as dt
@@ -976,7 +1134,7 @@ def api_doctor_detail(doctor_id):
             'image': doctor.image,
             'bio': doctor.bio
         })
-    
+
     elif request.method == 'PUT':
         access_error = admin_api_required()
         if access_error:
@@ -1017,6 +1175,34 @@ def api_doctor_detail(doctor_id):
         db.session.delete(doctor)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Doctor deleted'})
+
+@app.route('/api/doctors/<int:doctor_id>/account', methods=['POST'])
+def create_doctor_account(doctor_id):
+    access_error = admin_api_required()
+    if access_error:
+        return access_error
+    doctor = Doctor.query.get(doctor_id)
+    data = request.get_json(silent=True) or {}
+    password = data.get('password') or ''
+    if not doctor or not doctor.email:
+        return jsonify({'error': 'A doctor profile with an email is required'}), 400
+    if len(password) < 6:
+        return jsonify({'error': 'Password must contain at least 6 characters'}), 400
+    username = (data.get('username') or doctor.email.split('@')[0]).strip()
+    existing = User.query.filter_by(email=doctor.email).first()
+    if existing and existing.user_type != 'doctor':
+        return jsonify({'error': 'This email is already used by another account type'}), 409
+    username_owner = User.query.filter_by(username=username).first()
+    if username_owner and (not existing or username_owner.id != existing.id):
+        return jsonify({'error': 'That username is already in use'}), 409
+    user = existing or User(email=doctor.email)
+    user.username = username
+    user.full_name = doctor.name
+    user.user_type = 'doctor'
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'Login created for {doctor.name}', 'username': user.username}), 201 if not existing else 200
 
 # ==================== STAFF ====================
 
@@ -1184,6 +1370,8 @@ def prescription_staff_api_required():
     user = User.query.get(session['user_id'])
     if not user or user.user_type not in PRESCRIPTION_STAFF_ROLES:
         return jsonify({'error': 'Doctor or administrator access required'}), 403
+    if user.user_type == 'doctor' and not current_doctor(user):
+        return jsonify({'error': 'Doctor profile is not linked to this account'}), 403
     return None
 
 def prescription_payload(prescription):
@@ -1211,15 +1399,15 @@ def prescriptions_page():
     can_create = user.user_type in PRESCRIPTION_STAFF_ROLES
     if user.user_type == 'patient':
         prescriptions = Prescription.query.filter_by(patient_id=user.id).order_by(Prescription.created_at.desc()).all()
-    elif user.user_type == 'doctor' and session.get('doctor_id'):
-        prescriptions = Prescription.query.filter_by(doctor_id=session['doctor_id']).order_by(Prescription.created_at.desc()).all()
+    elif user.user_type == 'doctor' and current_doctor(user):
+        prescriptions = Prescription.query.filter_by(doctor_id=current_doctor(user).id).order_by(Prescription.created_at.desc()).all()
     else:
         prescriptions = Prescription.query.order_by(Prescription.created_at.desc()).all()
     return render_template(
         'prescriptions.html',
         prescriptions=prescriptions,
-        patients=User.query.filter_by(user_type='patient').order_by(User.full_name).all() if can_create else [],
-        doctors=Doctor.query.order_by(Doctor.name).all() if can_create else [],
+        patients=(User.query.filter(User.user_type == 'patient', User.id.in_(doctor_patient_ids(current_doctor(user).id))).order_by(User.full_name).all() if user.user_type == 'doctor' and current_doctor(user) else User.query.filter_by(user_type='patient').order_by(User.full_name).all()) if can_create else [],
+        doctors=[current_doctor(user)] if user.user_type == 'doctor' and current_doctor(user) else (Doctor.query.order_by(Doctor.name).all() if can_create else []),
         can_create=can_create,
         is_patient=user.user_type == 'patient'
     )
@@ -1235,6 +1423,10 @@ def api_prescriptions():
         data = request.get_json(silent=True) or {}
         patient = User.query.filter_by(id=data.get('patient_id'), user_type='patient').first()
         doctor = Doctor.query.get(data.get('doctor_id')) if data.get('doctor_id') else None
+        if user.user_type == 'doctor':
+            doctor = current_doctor(user)
+            if not doctor or not patient or not doctor_patient_appointment(doctor.id, patient.id):
+                return jsonify({'error': 'You can only prescribe for your patients'}), 403
         if not patient or not data.get('medicine') or not data.get('dosage'):
             return jsonify({'error': 'Patient, medicine, and dosage are required'}), 400
         if data.get('doctor_id') and not doctor:
@@ -1264,7 +1456,7 @@ def api_prescriptions():
     if user.user_type == 'patient':
         records = Prescription.query.filter_by(patient_id=user.id)
     elif user.user_type == 'doctor':
-        doctor_id = request.args.get('doctor_id') or session.get('doctor_id')
+        doctor_id = current_doctor(user).id if current_doctor(user) else None
         records = Prescription.query.filter_by(doctor_id=doctor_id) if doctor_id else Prescription.query.filter_by(id=-1)
     elif user.user_type == 'admin':
         records = Prescription.query
@@ -1279,7 +1471,10 @@ def prescription_pdf(prescription_id):
     if not prescription:
         return jsonify({'error': 'Prescription not found'}), 404
     user = User.query.get(session['user_id'])
-    if user.user_type not in {'admin'} and prescription.patient_id != user.id:
+    doctor = current_doctor(user) if user.user_type == 'doctor' else None
+    if user.user_type == 'doctor' and (not doctor or prescription.doctor_id != doctor.id):
+        return jsonify({'error': 'Access denied'}), 403
+    if user.user_type not in {'admin', 'doctor'} and prescription.patient_id != user.id:
         return jsonify({'error': 'Access denied'}), 403
     try:
         from io import BytesIO
@@ -1548,7 +1743,8 @@ def release_bed(bed_id):
 def laboratory_page():
     user = User.query.get(session['user_id'])
     is_patient = user.user_type == 'patient'
-    patients = [user] if is_patient else User.query.filter_by(user_type='patient').order_by(User.full_name).all()
+    doctor = current_doctor(user) if user.user_type == 'doctor' else None
+    patients = [user] if is_patient else (User.query.filter(User.user_type == 'patient', User.id.in_(doctor_patient_ids(doctor.id))).order_by(User.full_name).all() if doctor else [])
     return render_template(
         'laboratory.html',
         patients=patients,
@@ -1606,6 +1802,8 @@ def api_lab_tests():
     query = LabTest.query
     if user.user_type == 'patient':
         query = query.filter_by(patient_id=user.id)
+    elif user.user_type == 'doctor':
+        query = query.filter(LabTest.patient_id.in_(doctor_patient_ids(current_doctor(user).id)))
     search = (request.args.get('q') or '').strip()
     status = (request.args.get('status') or '').strip()
     patient_id = request.args.get('patient_id')
@@ -1633,12 +1831,12 @@ def api_lab_tests():
         end = start + timedelta(days=1)
         query = query.filter(LabTest.scheduled_date >= start, LabTest.scheduled_date < end)
 
-    scoped_tests = LabTest.query.filter_by(patient_id=user.id).all() if user.user_type == 'patient' else LabTest.query.all()
+    scoped_tests = LabTest.query.filter_by(patient_id=user.id).all() if user.user_type == 'patient' else (LabTest.query.filter(LabTest.patient_id.in_(doctor_patient_ids(current_doctor(user).id))).all() if user.user_type == 'doctor' else LabTest.query.all())
     tests = query.order_by(LabTest.scheduled_date.desc()).all()
     return jsonify({
         'tests': [lab_payload(test) for test in tests],
         'statistics': lab_statistics(scoped_tests),
-        'patients': [{'id': patient.id, 'name': patient.full_name, 'email': patient.email} for patient in User.query.filter_by(user_type='patient').order_by(User.full_name).all()] if user.user_type != 'patient' else []
+        'patients': [{'id': patient.id, 'name': patient.full_name, 'email': patient.email} for patient in User.query.filter(User.user_type == 'patient', User.id.in_(doctor_patient_ids(current_doctor(user).id))).order_by(User.full_name).all()] if user.user_type == 'doctor' else ([{'id': patient.id, 'name': patient.full_name, 'email': patient.email} for patient in User.query.filter_by(user_type='patient').order_by(User.full_name).all()] if user.user_type != 'patient' else [])
     })
 
 @app.route('/api/lab-tests/request', methods=['POST'])
@@ -1654,6 +1852,8 @@ def request_lab_test():
     except (TypeError, ValueError):
         return jsonify({'error': 'A valid patient is required'}), 400
     patient = User.query.filter_by(id=patient_id, user_type='patient').first()
+    if not patient or not doctor_patient_appointment(current_doctor(doctor).id, patient.id):
+        return jsonify({'error': 'Patient is outside your care scope'}), 403
     test_name = (data.get('test_name') or '').strip()
     test_type = (data.get('test_type') or '').strip()
     scheduled_value = data.get('scheduled_date')
@@ -1688,6 +1888,8 @@ def api_lab_test_detail(test_id):
         return jsonify({'error': 'Lab test not found'}), 404
     user = User.query.get(session['user_id'])
     if user.user_type == 'patient' and test.patient_id != user.id:
+        return jsonify({'error': 'Access denied'}), 403
+    if user.user_type == 'doctor' and not doctor_patient_appointment(current_doctor(user).id, test.patient_id):
         return jsonify({'error': 'Access denied'}), 403
     if user.user_type not in LAB_STAFF_ROLES and user.user_type != 'patient':
         return jsonify({'error': 'Access denied'}), 403
@@ -1727,7 +1929,7 @@ def lab_report(test_id):
     if not test:
         return render_template('404.html'), 404
     user = User.query.get(session['user_id'])
-    if test.status != 'Completed' or (user.user_type == 'patient' and test.patient_id != user.id) or (user.user_type not in LAB_STAFF_ROLES and user.user_type != 'patient'):
+    if test.status != 'Completed' or (user.user_type == 'patient' and test.patient_id != user.id) or (user.user_type == 'doctor' and not doctor_patient_appointment(current_doctor(user).id, test.patient_id)) or (user.user_type not in LAB_STAFF_ROLES and user.user_type != 'patient'):
         return render_template('404.html'), 404
     return render_template('lab_report.html', test=test)
 
@@ -2004,12 +2206,20 @@ def api_queue():
     except ValueError:
         return jsonify({'error': 'Invalid queue date'}), 400
     query = Appointment.query.join(Doctor).filter(Appointment.queue_date == queue_date)
+    user = User.query.get(session.get('user_id')) if session.get('user_id') else None
+    doctor = current_doctor(user) if user and user.user_type == 'doctor' else None
+    if user and user.user_type == 'doctor':
+        if not doctor:
+            return jsonify({'error': 'Doctor profile is not linked to this account'}), 403
+        query = query.filter(Appointment.doctor_id == doctor.id)
     doctor_id = request.args.get('doctor_id')
     department_id = request.args.get('department_id')
     status = request.args.get('status')
     if doctor_id:
         try:
-            query = query.filter(Appointment.doctor_id == int(doctor_id))
+            requested_doctor_id = int(doctor_id)
+            if not doctor or requested_doctor_id == doctor.id:
+                query = query.filter(Appointment.doctor_id == requested_doctor_id)
         except ValueError:
             return jsonify({'error': 'Invalid doctor filter'}), 400
     if department_id:
@@ -2033,9 +2243,17 @@ def call_next_queue_patient():
         return access_error
     data = request.get_json(silent=True) or {}
     query = Appointment.query.join(Doctor).filter(Appointment.queue_date == date.today(), Appointment.queue_status == 'Waiting')
+    user = User.query.get(session['user_id'])
+    doctor = current_doctor(user) if user.user_type == 'doctor' else None
+    if user.user_type == 'doctor':
+        if not doctor:
+            return jsonify({'error': 'Doctor profile is not linked to this account'}), 403
+        query = query.filter(Appointment.doctor_id == doctor.id)
     if data.get('doctor_id'):
         try:
-            query = query.filter(Appointment.doctor_id == int(data['doctor_id']))
+            requested_doctor_id = int(data['doctor_id'])
+            if not doctor or requested_doctor_id == doctor.id:
+                query = query.filter(Appointment.doctor_id == requested_doctor_id)
         except (TypeError, ValueError):
             return jsonify({'error': 'Invalid doctor filter'}), 400
     if data.get('department_id'):
@@ -2059,6 +2277,10 @@ def update_queue_status(appointment_id):
     appointment = Appointment.query.get(appointment_id)
     if not appointment:
         return jsonify({'error': 'Queue appointment not found'}), 404
+    user = User.query.get(session['user_id'])
+    doctor = current_doctor(user) if user.user_type == 'doctor' else None
+    if user.user_type == 'doctor' and (not doctor or appointment.doctor_id != doctor.id):
+        return jsonify({'error': 'This appointment is outside your care scope'}), 403
     data = request.get_json(silent=True) or {}
     new_status = (data.get('queue_status') or '').strip()
     if new_status not in QUEUE_STATUSES:
@@ -2185,6 +2407,9 @@ def api_analytics():
             department_id = int(department_id)
         except ValueError:
             return jsonify({'error': 'Department filter must be a valid ID'}), 400
+        department = db.session.get(Department, department_id)
+        if not department:
+            return jsonify({'error': 'Department filter was not found'}), 400
 
     appointment_query = Appointment.query.filter(Appointment.appointment_date >= start_datetime, Appointment.appointment_date < end_datetime)
     if department_id:
@@ -2224,10 +2449,14 @@ def api_analytics():
     if department_id:
         status_query = status_query.join(Doctor).filter(Doctor.department_id == department_id)
     status_rows = status_query.group_by(Appointment.status).all()
-    department_rows = db.session.query(Department.name, func.count(distinct(Appointment.user_id))).join(Doctor, Doctor.department_id == Department.id).join(Appointment, Appointment.doctor_id == Doctor.id).filter(Appointment.appointment_date >= start_datetime, Appointment.appointment_date < end_datetime).group_by(Department.id, Department.name).order_by(Department.name).all()
+    department_query = db.session.query(Department.name, func.count(distinct(Appointment.user_id))).join(Doctor, Doctor.department_id == Department.id).join(Appointment, Appointment.doctor_id == Doctor.id).filter(Appointment.appointment_date >= start_datetime, Appointment.appointment_date < end_datetime)
     if department_id:
-        department_rows = [row for row in department_rows if Department.query.filter_by(id=department_id, name=row[0]).first()]
-    bed_rows = db.session.query(Bed.status, func.count(Bed.id)).group_by(Bed.status).all()
+        department_query = department_query.filter(Department.id == department_id)
+    department_rows = department_query.group_by(Department.id, Department.name).order_by(Department.name).all()
+    bed_query = db.session.query(Bed.status, func.count(Bed.id))
+    if department_id:
+        bed_query = bed_query.filter(Bed.department == department.name)
+    bed_rows = bed_query.group_by(Bed.status).all()
     pharmacy_stock = db.session.query(func.coalesce(func.sum(Medicine.quantity), 0)).scalar() or 0
     pending_lab_tests = LabTest.query.filter(LabTest.status != 'Completed', LabTest.scheduled_date >= start_datetime, LabTest.scheduled_date < end_datetime).count()
 
@@ -2667,6 +2896,16 @@ def internal_error(error):
 def init_db():
     with app.app_context():
         db.create_all()
+        user_columns = {column['name'] for column in inspect(db.engine).get_columns('user')}
+        user_column_definitions = {
+            'emergency_contact_name': 'VARCHAR(100)',
+            'emergency_contact_phone': 'VARCHAR(20)',
+            'blood_group': 'VARCHAR(10)',
+            'allergies': 'TEXT'
+        }
+        for column_name, column_definition in user_column_definitions.items():
+            if column_name not in user_columns:
+                db.session.execute(text(f'ALTER TABLE user ADD COLUMN {column_name} {column_definition}'))
         doctor_columns = {column['name'] for column in inspect(db.engine).get_columns('doctor')}
         if 'department_id' not in doctor_columns:
             db.session.execute(text('ALTER TABLE doctor ADD COLUMN department_id INTEGER REFERENCES department(id)'))
