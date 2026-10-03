@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, session, send_file
 from flask_sqlalchemy import SQLAlchemy
 from datetime import date, datetime, timedelta
 import os
@@ -7,7 +7,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from functools import wraps
 import json
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, func, distinct
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///hospital.db'
@@ -138,6 +138,10 @@ class Bill(db.Model):
     status = db.Column(db.String(20), default='Pending')
     created_at = db.Column(db.DateTime, default=datetime.now)
     due_date = db.Column(db.DateTime)
+    invoice_number = db.Column(db.String(40), index=True)
+    discount_amount = db.Column(db.Float, default=0)
+    tax_amount = db.Column(db.Float, default=0)
+    payment_date = db.Column(db.DateTime)
     service = db.relationship('Service', backref='bills')
     appointment = db.relationship('Appointment', backref='bills')
 
@@ -164,11 +168,18 @@ class MedicalRecord(db.Model):
 class Prescription(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     patient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    doctor_id = db.Column(db.Integer, db.ForeignKey('doctor.id'))
     medicine = db.Column(db.String(150), nullable=False)
     dosage = db.Column(db.String(100), nullable=False)
+    frequency = db.Column(db.String(100))
+    duration = db.Column(db.String(100))
+    diagnosis = db.Column(db.Text)
     instructions = db.Column(db.Text)
+    follow_up_date = db.Column(db.Date)
+    signature_name = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=datetime.now)
     patient = db.relationship('User', backref='prescriptions')
+    doctor = db.relationship('Doctor', backref='prescriptions')
 
 class Medicine(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -452,7 +463,8 @@ def active_queue_duplicate(patient_email, user_id, doctor_id, appointment_date, 
     return query.first()
 
 def queue_statistics(entries):
-    current = next((entry for entry in entries if entry.queue_status in {'In Consultation', 'Called'}), None)
+    current = next((entry for entry in entries if entry.queue_status == 'In Consultation'), None)
+    current = current or next((entry for entry in entries if entry.queue_status == 'Called'), None)
     waiting = [entry for entry in entries if entry.queue_status == 'Waiting']
     completed = [entry for entry in entries if entry.queue_status == 'Completed']
     return {
@@ -1164,25 +1176,147 @@ def api_medical_records():
     records = MedicalRecord.query.all() if user.user_type == 'admin' else MedicalRecord.query.filter_by(patient_id=user.id).all()
     return jsonify([{'id': r.id, 'patient_id': r.patient_id, 'title': r.title, 'diagnosis': r.diagnosis, 'notes': r.notes, 'created_at': r.created_at.isoformat()} for r in records])
 
+PRESCRIPTION_STAFF_ROLES = {'admin', 'doctor'}
+
+def prescription_staff_api_required():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Authentication required'}), 401
+    user = User.query.get(session['user_id'])
+    if not user or user.user_type not in PRESCRIPTION_STAFF_ROLES:
+        return jsonify({'error': 'Doctor or administrator access required'}), 403
+    return None
+
+def prescription_payload(prescription):
+    return {
+        'id': prescription.id,
+        'patient_id': prescription.patient_id,
+        'patient_name': prescription.patient.full_name,
+        'doctor_id': prescription.doctor_id,
+        'doctor_name': prescription.doctor.name if prescription.doctor else None,
+        'medicine': prescription.medicine,
+        'dosage': prescription.dosage,
+        'frequency': prescription.frequency,
+        'duration': prescription.duration,
+        'diagnosis': prescription.diagnosis,
+        'instructions': prescription.instructions,
+        'follow_up_date': prescription.follow_up_date.isoformat() if prescription.follow_up_date else None,
+        'signature_name': prescription.signature_name or (prescription.doctor.name if prescription.doctor else None),
+        'created_at': prescription.created_at.isoformat()
+    }
+
+@app.route('/prescriptions')
+@login_required
+def prescriptions_page():
+    user = User.query.get(session['user_id'])
+    can_create = user.user_type in PRESCRIPTION_STAFF_ROLES
+    if user.user_type == 'patient':
+        prescriptions = Prescription.query.filter_by(patient_id=user.id).order_by(Prescription.created_at.desc()).all()
+    elif user.user_type == 'doctor' and session.get('doctor_id'):
+        prescriptions = Prescription.query.filter_by(doctor_id=session['doctor_id']).order_by(Prescription.created_at.desc()).all()
+    else:
+        prescriptions = Prescription.query.order_by(Prescription.created_at.desc()).all()
+    return render_template(
+        'prescriptions.html',
+        prescriptions=prescriptions,
+        patients=User.query.filter_by(user_type='patient').order_by(User.full_name).all() if can_create else [],
+        doctors=Doctor.query.order_by(Doctor.name).all() if can_create else [],
+        can_create=can_create,
+        is_patient=user.user_type == 'patient'
+    )
+
 @app.route('/api/prescriptions', methods=['GET', 'POST'])
 @login_required
 def api_prescriptions():
     user = User.query.get(session['user_id'])
     if request.method == 'POST':
-        access_error = admin_api_required()
+        access_error = prescription_staff_api_required()
         if access_error:
             return access_error
-        data = request.get_json() or {}
-        patient_id = data.get('patient_id')
-        patient = User.query.get(patient_id) if patient_id else None
-        if not patient or patient.user_type != 'patient' or not data.get('medicine') or not data.get('dosage'):
+        data = request.get_json(silent=True) or {}
+        patient = User.query.filter_by(id=data.get('patient_id'), user_type='patient').first()
+        doctor = Doctor.query.get(data.get('doctor_id')) if data.get('doctor_id') else None
+        if not patient or not data.get('medicine') or not data.get('dosage'):
             return jsonify({'error': 'Patient, medicine, and dosage are required'}), 400
-        prescription = Prescription(patient_id=patient.id, medicine=data['medicine'], dosage=data['dosage'], instructions=data.get('instructions'))
+        if data.get('doctor_id') and not doctor:
+            return jsonify({'error': 'Doctor not found'}), 404
+        follow_up_date = None
+        if data.get('follow_up_date'):
+            try:
+                follow_up_date = date.fromisoformat(data['follow_up_date'])
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Follow-up date must be a valid date'}), 400
+        signature_name = (data.get('signature_name') or '').strip() or (doctor.name if doctor else None)
+        prescription = Prescription(
+            patient_id=patient.id,
+            doctor_id=doctor.id if doctor else None,
+            medicine=str(data['medicine']).strip(),
+            dosage=str(data['dosage']).strip(),
+            frequency=data.get('frequency'),
+            duration=data.get('duration'),
+            diagnosis=data.get('diagnosis'),
+            instructions=data.get('instructions'),
+            follow_up_date=follow_up_date,
+            signature_name=signature_name
+        )
         db.session.add(prescription)
         db.session.commit()
-        return jsonify({'success': True, 'id': prescription.id})
-    records = Prescription.query.all() if user.user_type == 'admin' else Prescription.query.filter_by(patient_id=user.id).all()
-    return jsonify([{'id': p.id, 'patient_id': p.patient_id, 'medicine': p.medicine, 'dosage': p.dosage, 'instructions': p.instructions, 'created_at': p.created_at.isoformat()} for p in records])
+        return jsonify({'success': True, 'prescription': prescription_payload(prescription)}), 201
+    if user.user_type == 'patient':
+        records = Prescription.query.filter_by(patient_id=user.id)
+    elif user.user_type == 'doctor':
+        doctor_id = request.args.get('doctor_id') or session.get('doctor_id')
+        records = Prescription.query.filter_by(doctor_id=doctor_id) if doctor_id else Prescription.query.filter_by(id=-1)
+    elif user.user_type == 'admin':
+        records = Prescription.query
+    else:
+        return jsonify({'error': 'Access denied'}), 403
+    return jsonify([prescription_payload(prescription) for prescription in records.order_by(Prescription.created_at.desc()).all()])
+
+@app.route('/api/prescriptions/<int:prescription_id>/pdf')
+@login_required
+def prescription_pdf(prescription_id):
+    prescription = Prescription.query.get(prescription_id)
+    if not prescription:
+        return jsonify({'error': 'Prescription not found'}), 404
+    user = User.query.get(session['user_id'])
+    if user.user_type not in {'admin'} and prescription.patient_id != user.id:
+        return jsonify({'error': 'Access denied'}), 403
+    try:
+        from io import BytesIO
+        from xml.sax.saxutils import escape
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except ImportError:
+        return jsonify({'error': 'PDF support is not installed. Install the application requirements.'}), 503
+
+    hospital = HospitalInfo.query.first() or HospitalInfo()
+    doctor_name = prescription.doctor.name if prescription.doctor else prescription.signature_name or 'Attending Doctor'
+    doctor_specialization = prescription.doctor.specialization if prescription.doctor else ''
+    buffer = BytesIO()
+    document = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18 * mm, leftMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name='HospitalName', parent=styles['Title'], fontSize=20, leading=24, textColor=colors.HexColor('#123b52'), alignment=TA_CENTER, spaceAfter=2))
+    styles.add(ParagraphStyle(name='SmallMuted', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#5b6870')))
+    styles.add(ParagraphStyle(name='SectionLabel', parent=styles['Heading3'], fontSize=9, leading=11, textColor=colors.HexColor('#1b6b86'), spaceBefore=8, spaceAfter=4))
+    styles.add(ParagraphStyle(name='BodySafe', parent=styles['BodyText'], fontSize=10, leading=14, textColor=colors.HexColor('#202a30')))
+    safe = lambda value: escape(str(value or 'Not provided')).replace('\n', '<br/>')
+    story = [Paragraph(safe(hospital.name), styles['HospitalName']), Paragraph(safe(hospital.address) + '  |  ' + safe(hospital.phone) + '  |  ' + safe(hospital.email), styles['SmallMuted']), Spacer(1, 8), Paragraph('DIGITAL PRESCRIPTION', styles['Heading2'])]
+    doctor_patient = Table([
+        [Paragraph('<b>Prescriber</b><br/>' + safe(doctor_name) + ('<br/>' + safe(doctor_specialization) if doctor_specialization else ''), styles['BodySafe']), Paragraph('<b>Patient</b><br/>' + safe(prescription.patient.full_name) + '<br/>' + safe(prescription.patient.email) + ('<br/>' + safe(prescription.patient.phone) if prescription.patient.phone else ''), styles['BodySafe'])],
+        [Paragraph('<b>Issued</b><br/>' + prescription.created_at.strftime('%d %b %Y'), styles['BodySafe']), Paragraph('<b>Follow-up</b><br/>' + (prescription.follow_up_date.strftime('%d %b %Y') if prescription.follow_up_date else 'As advised'), styles['BodySafe'])]
+    ], colWidths=[88 * mm, 88 * mm])
+    doctor_patient.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f3f7f9')), ('BOX', (0, 0), (-1, -1), .5, colors.HexColor('#c9d8df')), ('INNERGRID', (0, 0), (-1, -1), .25, colors.HexColor('#dbe5e9')), ('VALIGN', (0, 0), (-1, -1), 'TOP'), ('LEFTPADDING', (0, 0), (-1, -1), 9), ('RIGHTPADDING', (0, 0), (-1, -1), 9), ('TOPPADDING', (0, 0), (-1, -1), 8), ('BOTTOMPADDING', (0, 0), (-1, -1), 8)]))
+    story += [doctor_patient, Paragraph('Clinical information', styles['SectionLabel']), Paragraph('<b>Diagnosis:</b> ' + safe(prescription.diagnosis), styles['BodySafe']), Paragraph('Medication instructions', styles['SectionLabel'])]
+    medication = Table([[Paragraph('<b>Medicine</b>', styles['BodySafe']), Paragraph('<b>Dosage</b>', styles['BodySafe']), Paragraph('<b>Frequency</b>', styles['BodySafe']), Paragraph('<b>Duration</b>', styles['BodySafe'])], [Paragraph(safe(prescription.medicine), styles['BodySafe']), Paragraph(safe(prescription.dosage), styles['BodySafe']), Paragraph(safe(prescription.frequency), styles['BodySafe']), Paragraph(safe(prescription.duration), styles['BodySafe'])]], colWidths=[55 * mm, 37 * mm, 45 * mm, 39 * mm])
+    medication.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e7f1f4')), ('BOX', (0, 0), (-1, -1), .5, colors.HexColor('#c9d8df')), ('INNERGRID', (0, 0), (-1, -1), .25, colors.HexColor('#dbe5e9')), ('VALIGN', (0, 0), (-1, -1), 'TOP'), ('LEFTPADDING', (0, 0), (-1, -1), 7), ('RIGHTPADDING', (0, 0), (-1, -1), 7), ('TOPPADDING', (0, 0), (-1, -1), 7), ('BOTTOMPADDING', (0, 0), (-1, -1), 7)]))
+    story += [medication, Paragraph('Instructions: ' + safe(prescription.instructions), styles['BodySafe']), Spacer(1, 28), Paragraph('Digitally authorized by', styles['SmallMuted']), Paragraph('<b>' + safe(prescription.signature_name or doctor_name) + '</b>', styles['BodySafe']), Paragraph('This prescription is issued through the hospital record system. Verify patient identity before dispensing.', styles['SmallMuted'])]
+    document.build(story)
+    buffer.seek(0)
+    return send_file(buffer, mimetype='application/pdf', as_attachment=request.args.get('print') != '1', download_name=f'prescription-{prescription.id}.pdf')
 
 @app.route('/api/notifications')
 @login_required
@@ -1199,6 +1333,7 @@ def pay_bill(bill_id):
     if bill.user_id != session['user_id'] and session.get('user_type') != 'admin':
         return jsonify({'error': 'Access denied'}), 403
     bill.status = 'Paid'
+    bill.payment_date = bill.payment_date or datetime.now()
     db.session.add(Notification(user_id=bill.user_id, message=f'Bill #{bill.id} was paid successfully.'))
     db.session.commit()
     return jsonify({'success': True, 'message': 'Payment completed'})
@@ -2012,6 +2147,101 @@ def admin_reports():
                            pending_bills=Bill.query.filter_by(status='Pending').count(),
                            paid_bills=Bill.query.filter_by(status='Paid').count())
 
+def analytics_date_range(start_value=None, end_value=None):
+    today = date.today()
+    try:
+        start_date = date.fromisoformat(start_value) if start_value else today - timedelta(days=365)
+        end_date = date.fromisoformat(end_value) if end_value else today
+    except ValueError:
+        raise ValueError('Date filters must be valid dates')
+    if start_date > end_date:
+        raise ValueError('Start date cannot be after end date')
+    return start_date, end_date, datetime.combine(start_date, datetime.min.time()), datetime.combine(end_date + timedelta(days=1), datetime.min.time())
+
+def analytics_month_keys(start_date, end_date):
+    current = start_date.replace(day=1)
+    end_month = end_date.replace(day=1)
+    months = []
+    while current <= end_month:
+        months.append(current.strftime('%Y-%m'))
+        current = (current.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return months
+
+@app.route('/analytics')
+@admin_required
+def analytics_page():
+    return render_template('analytics.html', departments=Department.query.filter_by(status='Active').order_by(Department.name).all())
+
+@app.route('/api/analytics')
+@admin_required
+def api_analytics():
+    try:
+        start_date, end_date, start_datetime, end_datetime = analytics_date_range(request.args.get('start_date'), request.args.get('end_date'))
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    department_id = request.args.get('department_id')
+    if department_id:
+        try:
+            department_id = int(department_id)
+        except ValueError:
+            return jsonify({'error': 'Department filter must be a valid ID'}), 400
+
+    appointment_query = Appointment.query.filter(Appointment.appointment_date >= start_datetime, Appointment.appointment_date < end_datetime)
+    if department_id:
+        appointment_query = appointment_query.join(Doctor).filter(Doctor.department_id == department_id)
+    appointments_in_range = appointment_query.count()
+    today_appointments_query = Appointment.query.filter(func.date(Appointment.appointment_date) == date.today().isoformat())
+    if department_id:
+        today_appointments_query = today_appointments_query.join(Doctor).filter(Doctor.department_id == department_id)
+    today_appointments = today_appointments_query.count()
+    completed_appointments = appointment_query.filter(Appointment.status == 'Completed').count()
+
+    patient_query = User.query.filter_by(user_type='patient')
+    total_patients = patient_query.count()
+    new_patients = patient_query.filter(User.created_at >= start_datetime, User.created_at < end_datetime).count()
+
+    bill_query = Bill.query.filter(Bill.created_at >= start_datetime, Bill.created_at < end_datetime)
+    if department_id:
+        bill_query = bill_query.outerjoin(Appointment, Bill.appointment_id == Appointment.id).outerjoin(Doctor, Appointment.doctor_id == Doctor.id).filter((Doctor.department_id == department_id) | (Bill.appointment_id.is_(None)))
+    revenue = db.session.query(func.coalesce(func.sum(Bill.amount), 0)).filter(Bill.status == 'Paid', Bill.created_at >= start_datetime, Bill.created_at < end_datetime)
+    pending_payments = db.session.query(func.coalesce(func.sum(Bill.amount), 0)).filter(Bill.status != 'Paid', Bill.created_at >= start_datetime, Bill.created_at < end_datetime)
+    if department_id:
+        revenue = revenue.outerjoin(Appointment, Bill.appointment_id == Appointment.id).outerjoin(Doctor, Appointment.doctor_id == Doctor.id).filter((Doctor.department_id == department_id) | (Bill.appointment_id.is_(None)))
+        pending_payments = pending_payments.outerjoin(Appointment, Bill.appointment_id == Appointment.id).outerjoin(Doctor, Appointment.doctor_id == Doctor.id).filter((Doctor.department_id == department_id) | (Bill.appointment_id.is_(None)))
+
+    month_keys = analytics_month_keys(start_date, end_date)
+    patient_rows = db.session.query(func.strftime('%Y-%m', User.created_at), func.count(User.id)).filter(User.user_type == 'patient', User.created_at >= start_datetime, User.created_at < end_datetime).group_by(func.strftime('%Y-%m', User.created_at)).all()
+    appointment_month_query = db.session.query(func.strftime('%Y-%m', Appointment.appointment_date), func.count(Appointment.id)).filter(Appointment.appointment_date >= start_datetime, Appointment.appointment_date < end_datetime)
+    if department_id:
+        appointment_month_query = appointment_month_query.join(Doctor).filter(Doctor.department_id == department_id)
+    appointment_rows = appointment_month_query.group_by(func.strftime('%Y-%m', Appointment.appointment_date)).all()
+    revenue_month_query = db.session.query(func.strftime('%Y-%m', Bill.created_at), func.coalesce(func.sum(Bill.amount), 0)).filter(Bill.status == 'Paid', Bill.created_at >= start_datetime, Bill.created_at < end_datetime)
+    if department_id:
+        revenue_month_query = revenue_month_query.outerjoin(Appointment, Bill.appointment_id == Appointment.id).outerjoin(Doctor, Appointment.doctor_id == Doctor.id).filter((Doctor.department_id == department_id) | (Bill.appointment_id.is_(None)))
+    revenue_rows = revenue_month_query.group_by(func.strftime('%Y-%m', Bill.created_at)).all()
+
+    status_query = db.session.query(Appointment.status, func.count(Appointment.id)).filter(Appointment.appointment_date >= start_datetime, Appointment.appointment_date < end_datetime)
+    if department_id:
+        status_query = status_query.join(Doctor).filter(Doctor.department_id == department_id)
+    status_rows = status_query.group_by(Appointment.status).all()
+    department_rows = db.session.query(Department.name, func.count(distinct(Appointment.user_id))).join(Doctor, Doctor.department_id == Department.id).join(Appointment, Appointment.doctor_id == Doctor.id).filter(Appointment.appointment_date >= start_datetime, Appointment.appointment_date < end_datetime).group_by(Department.id, Department.name).order_by(Department.name).all()
+    if department_id:
+        department_rows = [row for row in department_rows if Department.query.filter_by(id=department_id, name=row[0]).first()]
+    bed_rows = db.session.query(Bed.status, func.count(Bed.id)).group_by(Bed.status).all()
+    pharmacy_stock = db.session.query(func.coalesce(func.sum(Medicine.quantity), 0)).scalar() or 0
+    pending_lab_tests = LabTest.query.filter(LabTest.status != 'Completed', LabTest.scheduled_date >= start_datetime, LabTest.scheduled_date < end_datetime).count()
+
+    def series(rows):
+        values = {key: value for key, value in rows}
+        return [values.get(month, 0) for month in month_keys]
+
+    bed_counts = {status: count for status, count in bed_rows}
+    return jsonify({
+        'filters': {'start_date': start_date.isoformat(), 'end_date': end_date.isoformat(), 'department_id': department_id},
+        'cards': {'total_patients': total_patients, 'new_patients': new_patients, 'today_appointments': today_appointments, 'completed_appointments': completed_appointments, 'revenue': float(revenue.scalar() or 0), 'pending_payments': float(pending_payments.scalar() or 0), 'available_beds': bed_counts.get('Available', 0), 'occupied_beds': bed_counts.get('Occupied', 0), 'pharmacy_stock': pharmacy_stock, 'pending_lab_tests': pending_lab_tests},
+        'charts': {'labels': month_keys, 'patients_per_month': series(patient_rows), 'appointments_per_month': series(appointment_rows), 'revenue_per_month': [float(value) for value in series(revenue_rows)], 'department_patients': {'labels': [row[0] for row in department_rows], 'values': [row[1] for row in department_rows]}, 'appointment_status': {'labels': [row[0] or 'Unknown' for row in status_rows], 'values': [row[1] for row in status_rows]}, 'bed_occupancy': {'labels': list(bed_counts.keys()), 'values': list(bed_counts.values())}}
+    })
+
 @app.route('/api/appointments', methods=['GET', 'POST'])
 def api_appointments():
     if request.method == 'POST':
@@ -2074,6 +2304,12 @@ def api_appointment_detail(appointment_id):
             return access_error
         data = request.get_json()
         appointment.status = data.get('status', appointment.status)
+        if appointment.status == 'Completed':
+            appointment.queue_status = 'Completed'
+            appointment.queue_completed_at = appointment.queue_completed_at or datetime.now()
+        elif appointment.status == 'Cancelled':
+            appointment.queue_status = 'No Show'
+            appointment.queue_completed_at = appointment.queue_completed_at or datetime.now()
         db.session.commit()
         return jsonify({'success': True, 'message': 'Appointment updated'})
     
@@ -2110,6 +2346,173 @@ def confirm_appointment(appointment_id):
     return redirect(url_for('admin_dashboard', _anchor='appointments'))
 
 # ==================== BILLING ====================
+
+def invoice_number_for_bill(bill):
+    return bill.invoice_number or f'INV-{bill.created_at.year}-{bill.id:06d}'
+
+def invoice_line_payload(bill):
+    description = bill.description or (bill.service.name if bill.service else 'Hospital service')
+    searchable = f'{description} {bill.service.category if bill.service else ""}'.lower()
+    if bill.appointment and bill.appointment.doctor:
+        category = 'Doctor consultation'
+        description = description if description != 'Hospital service' else f'Doctor consultation - Dr. {bill.appointment.doctor.name}'
+    elif 'lab' in searchable or 'diagnostic' in searchable or 'test' in searchable:
+        category = 'Lab charges'
+    elif 'pharmacy' in searchable or 'medicine' in searchable or 'drug' in searchable:
+        category = 'Pharmacy charges'
+    elif 'room' in searchable or 'bed' in searchable or 'ward' in searchable:
+        category = 'Room / bed charges'
+    else:
+        category = 'Service'
+    return {'id': bill.id, 'category': category, 'description': description, 'amount': bill.amount}
+
+def invoice_payload(bills):
+    bills = sorted(bills, key=lambda bill: (bill.created_at, bill.id))
+    first = bills[0]
+    subtotal = sum(bill.amount for bill in bills)
+    discount = first.discount_amount or 0
+    tax = first.tax_amount or 0
+    payment_dates = [bill.payment_date for bill in bills if bill.payment_date]
+    statuses = {bill.status for bill in bills}
+    status = 'Paid' if statuses and statuses.issubset({'Paid'}) else 'Pending'
+    return {
+        'invoice_number': invoice_number_for_bill(first),
+        'bill_ids': [bill.id for bill in bills],
+        'generated': bool(first.invoice_number),
+        'patient': {'id': first.user_id, 'name': first.patient_name, 'email': first.patient_email},
+        'lines': [invoice_line_payload(bill) for bill in bills],
+        'subtotal': subtotal,
+        'discount': discount,
+        'tax': tax,
+        'total': max(0, subtotal - discount + tax),
+        'status': status,
+        'payment_date': max(payment_dates).isoformat() if payment_dates else None,
+        'created_at': first.created_at.isoformat(),
+        'due_date': max((bill.due_date for bill in bills if bill.due_date), default=None).isoformat() if any(bill.due_date for bill in bills) else None
+    }
+
+def grouped_invoices(bills):
+    groups = {}
+    for bill in bills:
+        groups.setdefault(invoice_number_for_bill(bill), []).append(bill)
+    return [invoice_payload(group) for group in groups.values()]
+
+@app.route('/invoices')
+@login_required
+def invoices_page():
+    user = User.query.get(session['user_id'])
+    return render_template('invoices.html', is_admin=user.user_type == 'admin')
+
+@app.route('/api/invoices', methods=['GET'])
+@login_required
+def api_invoices():
+    user = User.query.get(session['user_id'])
+    query = Bill.query
+    if user.user_type == 'patient':
+        query = query.filter_by(user_id=user.id)
+    elif user.user_type != 'admin':
+        return jsonify({'error': 'Access denied'}), 403
+    bills = query.order_by(Bill.created_at.desc()).all()
+    search = (request.args.get('q') or '').strip().lower()
+    status = (request.args.get('status') or '').strip().lower()
+    date_from = request.args.get('date_from')
+    date_to = request.args.get('date_to')
+    if search:
+        bills = [bill for bill in bills if search in invoice_number_for_bill(bill).lower() or search in bill.patient_name.lower() or search in (bill.description or '').lower() or (bill.service and search in bill.service.name.lower())]
+    if status in {'paid', 'pending'}:
+        bills = [bill for bill in bills if (bill.status or 'Pending').lower() == status]
+    try:
+        if date_from:
+            bills = [bill for bill in bills if bill.created_at.date() >= date.fromisoformat(date_from)]
+        if date_to:
+            bills = [bill for bill in bills if bill.created_at.date() <= date.fromisoformat(date_to)]
+    except ValueError:
+        return jsonify({'error': 'Invoice date filters must be valid dates'}), 400
+    invoices = grouped_invoices(bills)
+    return jsonify({'invoices': invoices, 'statistics': {
+        'invoice_count': len(invoices),
+        'subtotal': sum(invoice['subtotal'] for invoice in invoices),
+        'pending_total': sum(invoice['total'] for invoice in invoices if invoice['status'] != 'Paid'),
+        'paid_total': sum(invoice['total'] for invoice in invoices if invoice['status'] == 'Paid')
+    }})
+
+@app.route('/api/invoices/generate', methods=['POST'])
+def generate_invoice():
+    access_error = admin_api_required()
+    if access_error:
+        return access_error
+    data = request.get_json(silent=True) or {}
+    try:
+        bill_ids = [int(bill_id) for bill_id in data.get('bill_ids', [])]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Bill IDs must be valid integers'}), 400
+    if not bill_ids:
+        return jsonify({'error': 'Select at least one existing bill'}), 400
+    bills = Bill.query.filter(Bill.id.in_(bill_ids)).order_by(Bill.id).all()
+    if len(bills) != len(set(bill_ids)):
+        return jsonify({'error': 'One or more bills could not be found'}), 404
+    if len({bill.user_id or bill.patient_email for bill in bills}) != 1:
+        return jsonify({'error': 'An invoice can contain charges for one patient only'}), 400
+    existing_numbers = {bill.invoice_number for bill in bills if bill.invoice_number}
+    if len(existing_numbers) > 1:
+        return jsonify({'error': 'Selected bills already belong to different invoices'}), 409
+    number = next(iter(existing_numbers), f'INV-{datetime.now().year}-{bills[0].id:06d}')
+    try:
+        discount = max(0, float(data.get('discount', 0) or 0))
+        tax = max(0, float(data.get('tax', 0) or 0))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Discount and tax must be valid amounts'}), 400
+    if discount > sum(bill.amount for bill in bills):
+        return jsonify({'error': 'Discount cannot exceed the subtotal'}), 400
+    for bill in bills:
+        bill.invoice_number = number
+    bills[0].discount_amount = discount
+    bills[0].tax_amount = tax
+    db.session.commit()
+    return jsonify({'success': True, 'invoice': invoice_payload(bills)}), 201
+
+@app.route('/api/invoices/<path:invoice_number>/pdf')
+@login_required
+def invoice_pdf(invoice_number):
+    user = User.query.get(session['user_id'])
+    bills = Bill.query.filter((Bill.invoice_number == invoice_number) | (Bill.id == int(invoice_number.removeprefix('INV-').split('-')[-1]) if invoice_number.startswith('INV-') and invoice_number.removeprefix('INV-').split('-')[-1].isdigit() else False)).all()
+    if not bills or (user.user_type == 'patient' and any(bill.user_id != user.id for bill in bills)):
+        return jsonify({'error': 'Invoice not found'}), 404
+    if user.user_type not in {'admin', 'patient'}:
+        return jsonify({'error': 'Access denied'}), 403
+    invoice = invoice_payload(bills)
+    try:
+        from io import BytesIO
+        from xml.sax.saxutils import escape
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except ImportError:
+        return jsonify({'error': 'PDF support is not installed. Install the application requirements.'}), 503
+    hospital = HospitalInfo.query.first() or HospitalInfo()
+    buffer = BytesIO()
+    document = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=16 * mm, leftMargin=16 * mm, topMargin=14 * mm, bottomMargin=14 * mm)
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(name='InvoiceHospital', parent=styles['Title'], fontSize=21, leading=25, textColor=colors.HexColor('#123b52'), alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name='InvoiceSmall', parent=styles['Normal'], fontSize=8.5, leading=11, textColor=colors.HexColor('#5b6870')))
+    styles.add(ParagraphStyle(name='InvoiceBody', parent=styles['Normal'], fontSize=9.5, leading=13, textColor=colors.HexColor('#202a30')))
+    safe = lambda value: escape(str(value or 'Not provided')).replace('\n', '<br/>')
+    story = [Paragraph(safe(hospital.name), styles['InvoiceHospital']), Paragraph(safe(hospital.address) + ' | ' + safe(hospital.phone) + ' | ' + safe(hospital.email), styles['InvoiceSmall']), Spacer(1, 10), Paragraph('<b>INVOICE</b> ' + safe(invoice['invoice_number']), styles['Heading2'])]
+    details = Table([[Paragraph('<b>Billed to</b><br/>' + safe(invoice['patient']['name']) + '<br/>' + safe(invoice['patient']['email']), styles['InvoiceBody']), Paragraph('<b>Invoice date</b><br/>' + safe(invoice['created_at'][:10]) + '<br/><b>Status:</b> ' + safe(invoice['status']), styles['InvoiceBody'])]], colWidths=[100 * mm, 72 * mm])
+    details.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f3f7f9')), ('BOX', (0, 0), (-1, -1), .5, colors.HexColor('#c9d8df')), ('VALIGN', (0, 0), (-1, -1), 'TOP'), ('PADDING', (0, 0), (-1, -1), 8)]))
+    story += [details, Spacer(1, 12)]
+    rows = [[Paragraph('<b>Category</b>', styles['InvoiceBody']), Paragraph('<b>Description</b>', styles['InvoiceBody']), Paragraph('<b>Amount</b>', styles['InvoiceBody'])]]
+    rows += [[Paragraph(safe(line['category']), styles['InvoiceBody']), Paragraph(safe(line['description']), styles['InvoiceBody']), Paragraph(f"${line['amount']:.2f}", styles['InvoiceBody'])] for line in invoice['lines']]
+    rows += [['', Paragraph('<b>Subtotal</b>', styles['InvoiceBody']), Paragraph(f"${invoice['subtotal']:.2f}", styles['InvoiceBody'])], ['', Paragraph('<b>Discount</b>', styles['InvoiceBody']), Paragraph(f"-${invoice['discount']:.2f}", styles['InvoiceBody'])], ['', Paragraph('<b>Tax</b>', styles['InvoiceBody']), Paragraph(f"${invoice['tax']:.2f}", styles['InvoiceBody'])], ['', Paragraph('<b>Total</b>', styles['InvoiceBody']), Paragraph(f"<b>${invoice['total']:.2f}</b>", styles['InvoiceBody'])]]
+    table = Table(rows, colWidths=[42 * mm, 98 * mm, 32 * mm], repeatRows=1)
+    table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e7f1f4')), ('BOX', (0, 0), (-1, -1), .5, colors.HexColor('#c9d8df')), ('INNERGRID', (0, 0), (-1, -1), .25, colors.HexColor('#dbe5e9')), ('ALIGN', (-1, 1), (-1, -1), 'RIGHT'), ('VALIGN', (0, 0), (-1, -1), 'TOP'), ('PADDING', (0, 0), (-1, -1), 7)]))
+    story += [table, Spacer(1, 18), Paragraph('Thank you for choosing ' + safe(hospital.name) + '.', styles['InvoiceSmall'])]
+    document.build(story)
+    buffer.seek(0)
+    return send_file(buffer, mimetype='application/pdf', as_attachment=request.args.get('print') != '1', download_name=f'{invoice["invoice_number"]}.pdf')
 
 @app.route('/bills')
 def bills_page():
@@ -2165,6 +2568,8 @@ def api_bill_detail(bill_id):
             return access_error
         data = request.get_json()
         bill.status = data.get('status', bill.status)
+        if bill.status == 'Paid':
+            bill.payment_date = bill.payment_date or datetime.now()
         db.session.commit()
         return jsonify({'success': True, 'message': 'Bill updated'})
     
@@ -2278,6 +2683,28 @@ def init_db():
         for column_name, column_definition in appointment_column_definitions.items():
             if column_name not in appointment_columns:
                 db.session.execute(text(f'ALTER TABLE appointment ADD COLUMN {column_name} {column_definition}'))
+        prescription_columns = {column['name'] for column in inspect(db.engine).get_columns('prescription')}
+        prescription_column_definitions = {
+            'doctor_id': 'INTEGER REFERENCES doctor(id)',
+            'frequency': 'VARCHAR(100)',
+            'duration': 'VARCHAR(100)',
+            'diagnosis': 'TEXT',
+            'follow_up_date': 'DATE',
+            'signature_name': 'VARCHAR(100)'
+        }
+        for column_name, column_definition in prescription_column_definitions.items():
+            if column_name not in prescription_columns:
+                db.session.execute(text(f'ALTER TABLE prescription ADD COLUMN {column_name} {column_definition}'))
+        bill_columns = {column['name'] for column in inspect(db.engine).get_columns('bill')}
+        bill_column_definitions = {
+            'invoice_number': 'VARCHAR(40)',
+            'discount_amount': 'FLOAT',
+            'tax_amount': 'FLOAT',
+            'payment_date': 'DATETIME'
+        }
+        for column_name, column_definition in bill_column_definitions.items():
+            if column_name not in bill_columns:
+                db.session.execute(text(f'ALTER TABLE bill ADD COLUMN {column_name} {column_definition}'))
         db.session.commit()
         appointments_to_backfill = Appointment.query.order_by(Appointment.doctor_id, Appointment.appointment_date, Appointment.id).all()
         token_counters = {}

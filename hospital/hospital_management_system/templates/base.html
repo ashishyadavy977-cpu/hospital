@@ -25,8 +25,11 @@
                 <li><a href="/staff" class="nav-link">Staff</a></li>
                 <li><a href="/services" class="nav-link">Services</a></li>
                 <li><a href="/appointments" class="nav-link">Appointments</a></li>
+                <li><a href="{{ url_for('queue_page') }}" class="nav-link"><i class="fas fa-ticket-alt"></i> Queue</a></li>
+                {% if session.get('user_id') %}<li><a href="{{ url_for('prescriptions_page') }}" class="nav-link">Prescriptions</a></li>{% endif %}
                 {% if session.get('user_id') %}<li><a href="{{ url_for('calendar_page') }}" class="nav-link">Calendar</a></li>{% endif %}
                 <li><a href="/bills" class="nav-link">Billing</a></li>
+                {% if session.get('user_id') %}<li><a href="{{ url_for('invoices_page') }}" class="nav-link">Invoices</a></li>{% endif %}
                 {% if session.get('user_id') %}<li><a href="{{ url_for('laboratory_page') }}" class="nav-link">Laboratory</a></li>{% endif %}
                 {% if session.get('user_type') in ['admin', 'pharmacist', 'receptionist'] %}<li><a href="{{ url_for('pharmacy_page') }}" class="nav-link">Pharmacy</a></li>{% endif %}
                 {% if session.get('user_id') %}

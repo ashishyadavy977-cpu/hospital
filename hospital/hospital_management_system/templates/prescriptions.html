@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Digital Prescriptions - MediCare Hospital{% endblock %}
+
+{% block content %}
+<div class="container prescriptions-page">
+    <div class="page-header prescription-header">
+        <div><p class="prescription-eyebrow"><i class="fas fa-file-prescription"></i> Clinical records</p><h1>Digital Prescriptions</h1><p>{% if is_patient %}Your prescriptions, securely stored in your hospital record.{% else %}Create and review prescriptions using the hospital's verified patient and doctor records.{% endif %}</p></div>
+    </div>
+    <div id="prescriptionMessage" class="alert" role="status" hidden></div>
+
+    {% if can_create %}
+    <section class="prescription-compose prescription-surface">
+        <div class="prescription-section-heading"><div><h2>New prescription</h2><p>Complete the clinical details before authorizing the prescription.</p></div><span class="record-badge"><i class="fas fa-shield-halved"></i> Private clinical record</span></div>
+        <form id="prescriptionForm" class="prescription-form">
+            <div class="form-group"><label for="prescriptionPatient">Patient</label><select id="prescriptionPatient" required><option value="">Select patient...</option>{% for patient in patients %}<option value="{{ patient.id }}">{{ patient.full_name }}{% if patient.date_of_birth %} - DOB {{ patient.date_of_birth.strftime('%d %b %Y') }}{% endif %}</option>{% endfor %}</select></div>
+            <div class="form-group"><label for="prescriptionDoctor">Doctor</label><select id="prescriptionDoctor" required><option value="">Select doctor...</option>{% for doctor in doctors %}<option value="{{ doctor.id }}">Dr. {{ doctor.name }} - {{ doctor.specialization }}</option>{% endfor %}</select></div>
+            <div class="form-group prescription-wide"><label for="diagnosis">Diagnosis</label><textarea id="diagnosis" rows="2" maxlength="2000" required></textarea></div>
+            <div class="form-group"><label for="medicine">Medicine</label><input id="medicine" maxlength="150" required></div>
+            <div class="form-group"><label for="dosage">Dosage</label><input id="dosage" placeholder="e.g. 500 mg" maxlength="100" required></div>
+            <div class="form-group"><label for="frequency">Frequency</label><input id="frequency" placeholder="e.g. Twice daily" maxlength="100" required></div>
+            <div class="form-group"><label for="duration">Duration</label><input id="duration" placeholder="e.g. 7 days" maxlength="100" required></div>
+            <div class="form-group"><label for="followUpDate">Follow-up date</label><input id="followUpDate" type="date"></div>
+            <div class="form-group prescription-wide"><label for="instructions">Instructions</label><textarea id="instructions" rows="3" maxlength="2000" placeholder="Timing, food instructions, precautions, or other clinical guidance"></textarea></div>
+            <div class="form-group"><label for="signatureName">Doctor signature/name</label><input id="signatureName" maxlength="100" required></div>
+            <div class="prescription-form-actions"><button class="btn btn-primary" type="submit"><i class="fas fa-file-signature"></i> Save prescription</button></div>
+        </form>
+    </section>
+    {% endif %}
+
+    <section class="prescription-history prescription-surface">
+        <div class="prescription-section-heading"><div><h2>{% if is_patient %}My prescriptions{% else %}Prescription history{% endif %}</h2><p>{% if is_patient %}Download a professional copy for your records or print it for your care team.{% else %}Previous prescriptions remain available for authorized clinical review.{% endif %}</p></div><span class="prescription-count">{{ prescriptions|length }} record{% if prescriptions|length != 1 %}s{% endif %}</span></div>
+        {% if prescriptions %}
+        <div class="prescription-list">
+            {% for prescription in prescriptions %}
+            <article class="prescription-card">
+                <div class="prescription-card-top"><div><span class="prescription-date">{{ prescription.created_at.strftime('%d %b %Y') }}</span><h3>{{ prescription.medicine }}</h3></div><span class="record-badge">#{{ prescription.id }}</span></div>
+                <div class="prescription-details"><div><span>Dosage</span><strong>{{ prescription.dosage }}</strong></div><div><span>Frequency</span><strong>{{ prescription.frequency or 'Not provided' }}</strong></div><div><span>Duration</span><strong>{{ prescription.duration or 'Not provided' }}</strong></div><div><span>Doctor</span><strong>{{ 'Dr. ' ~ prescription.doctor.name if prescription.doctor else (prescription.signature_name or 'Not provided') }}</strong></div></div>
+                {% if prescription.diagnosis %}<p class="prescription-diagnosis"><b>Diagnosis:</b> {{ prescription.diagnosis }}</p>{% endif %}
+                {% if prescription.instructions %}<p class="prescription-instructions"><b>Instructions:</b> {{ prescription.instructions }}</p>{% endif %}
+                <div class="prescription-card-footer"><span>Follow-up: {{ prescription.follow_up_date.strftime('%d %b %Y') if prescription.follow_up_date else 'As advised' }}</span><span class="prescription-actions"><a class="btn btn-small btn-secondary" href="{{ url_for('prescription_pdf', prescription_id=prescription.id) }}"><i class="fas fa-file-pdf"></i> Download PDF</a> <a class="btn btn-small btn-secondary" target="_blank" rel="noopener" href="{{ url_for('prescription_pdf', prescription_id=prescription.id, print=1) }}"><i class="fas fa-print"></i> Print</a></span></div>
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}<p class="empty-message">No prescriptions are available.</p>{% endif %}
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if can_create %}
+<script>
+const prescriptionMessage = document.getElementById('prescriptionMessage');
+const prescriptionForm = document.getElementById('prescriptionForm');
+function showPrescriptionMessage(message, type = 'success') { prescriptionMessage.textContent = message; prescriptionMessage.className = `alert alert-${type}`; prescriptionMessage.hidden = false; window.setTimeout(() => { prescriptionMessage.hidden = true; }, 5000); }
+prescriptionForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const payload = {patient_id: document.getElementById('prescriptionPatient').value, doctor_id: document.getElementById('prescriptionDoctor').value, diagnosis: document.getElementById('diagnosis').value, medicine: document.getElementById('medicine').value, dosage: document.getElementById('dosage').value, frequency: document.getElementById('frequency').value, duration: document.getElementById('duration').value, follow_up_date: document.getElementById('followUpDate').value, instructions: document.getElementById('instructions').value, signature_name: document.getElementById('signatureName').value};
+    try { const response = await fetch('/api/prescriptions', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)}); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Unable to save prescription'); showPrescriptionMessage('Prescription saved successfully.'); prescriptionForm.reset(); window.setTimeout(() => window.location.reload(), 700); } catch (error) { showPrescriptionMessage(error.message, 'danger'); }
+});
+</script>
+{% endif %}
+{% endblock %}

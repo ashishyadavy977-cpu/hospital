@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}Today's Queue - MediCare Hospital{% endblock %}
+
+{% block content %}
+<div class="container queue-page">
+    <div class="page-header queue-header">
+        <div>
+            <p class="queue-eyebrow"><i class="fas fa-ticket-alt"></i> Today's operations</p>
+            <h1>Token Queue</h1>
+            <p>Track patient flow by doctor or department and keep every consultation moving.</p>
+        </div>
+        <div class="queue-date-control">
+            <label for="queueDate">Queue date</label>
+            <input type="date" id="queueDate">
+        </div>
+    </div>
+
+    <div id="queueAlert" class="alert queue-alert" hidden></div>
+
+    <section class="queue-controls" aria-label="Queue filters">
+        <div class="form-group">
+            <label for="doctorFilter">Doctor</label>
+            <select id="doctorFilter">
+                <option value="">All doctors</option>
+                {% for doctor in doctors %}
+                    <option value="{{ doctor.id }}">Dr. {{ doctor.name }}{% if doctor.department %} - {{ doctor.department.name }}{% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="departmentFilter">Department</label>
+            <select id="departmentFilter">
+                <option value="">All departments</option>
+                {% for department in departments %}
+                    <option value="{{ department.id }}">{{ department.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="statusFilter">Status</label>
+            <select id="statusFilter">
+                <option value="">All statuses</option>
+                {% for status in queue_statuses %}
+                    <option value="{{ status }}">{{ status }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="button" class="btn btn-secondary queue-refresh" id="refreshQueue"><i class="fas fa-sync-alt"></i> Refresh</button>
+        {% if can_manage %}
+            <button type="button" class="btn btn-primary" id="callNext"><i class="fas fa-bullhorn"></i> Call next</button>
+        {% endif %}
+    </section>
+
+    <section class="queue-stats" aria-label="Queue summary">
+        <div class="queue-stat queue-stat-current"><span>Current token</span><strong id="currentToken">-</strong><small id="currentPatient">No active consultation</small></div>
+        <div class="queue-stat queue-stat-next"><span>Next token</span><strong id="nextToken">-</strong><small>First waiting patient</small></div>
+        <div class="queue-stat"><span>Waiting patients</span><strong id="waitingCount">0</strong><small>Ready to be called</small></div>
+        <div class="queue-stat queue-stat-complete"><span>Completed patients</span><strong id="completedCount">0</strong><small>Finished today</small></div>
+    </section>
+
+    {% if can_manage %}
+    <section class="queue-walk-in panel-surface">
+        <div>
+            <h2>Register a walk-in</h2>
+            <p>Generate the next token in a doctor's queue without creating a separate workflow.</p>
+        </div>
+        <form id="walkInForm" class="walk-in-form">
+            <input name="patient_name" placeholder="Patient name" required>
+            <input name="patient_email" type="email" placeholder="Email" required>
+            <input name="patient_phone" placeholder="Phone" required>
+            <select name="doctor_id" required>
+                <option value="">Choose doctor</option>
+                {% for doctor in doctors %}<option value="{{ doctor.id }}">Dr. {{ doctor.name }}</option>{% endfor %}
+            </select>
+            <input name="reason" placeholder="Reason (optional)">
+            <button class="btn btn-success" type="submit"><i class="fas fa-plus"></i> Issue token</button>
+        </form>
+    </section>
+    {% endif %}
+
+    <section class="queue-table-section">
+        <div class="section-heading-row">
+            <div><h2>Queue entries</h2><p id="queueSummary">Loading today's queue...</p></div>
+            <span class="queue-live"><i class="fas fa-circle"></i> Live view</span>
+        </div>
+        <div class="appointments-table-wrapper">
+            <table class="appointments-table queue-table">
+                <thead><tr><th>Token</th><th>Patient</th><th>Doctor / Department</th><th>Appointment</th><th>Status</th><th>Action</th></tr></thead>
+                <tbody id="queueBody"><tr><td colspan="6" class="empty-message">Loading queue...</td></tr></tbody>
+            </table>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const canManageQueue = {{ 'true' if can_manage else 'false' }};
+const queueDate = document.getElementById('queueDate');
+const doctorFilter = document.getElementById('doctorFilter');
+const departmentFilter = document.getElementById('departmentFilter');
+const statusFilter = document.getElementById('statusFilter');
+const queueBody = document.getElementById('queueBody');
+const queueAlert = document.getElementById('queueAlert');
+const today = new Date();
+queueDate.value = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+
+function showQueueAlert(message, kind = 'danger') {
+    queueAlert.textContent = message;
+    queueAlert.className = `alert alert-${kind} queue-alert`;
+    queueAlert.hidden = false;
+    window.setTimeout(() => { queueAlert.hidden = true; }, 5000);
+}
+
+function queueQuery() {
+    const params = new URLSearchParams({ date: queueDate.value });
+    if (doctorFilter.value) params.set('doctor_id', doctorFilter.value);
+    if (departmentFilter.value) params.set('department_id', departmentFilter.value);
+    if (statusFilter.value) params.set('status', statusFilter.value);
+    return params.toString();
+}
+
+function statusClass(status) { return status.toLowerCase().replaceAll(' ', '-'); }
+function escapeHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[character])); }
+
+function updateQueueSummary(data) {
+    const stats = data.statistics;
+    const current = data.entries.find(entry => entry.token_number === stats.current_token);
+    document.getElementById('currentToken').textContent = stats.current_token ? `#${stats.current_token}` : '-';
+    document.getElementById('currentPatient').textContent = current ? `${current.patient_name} · ${current.queue_status}` : 'No active consultation';
+    document.getElementById('nextToken').textContent = stats.next_token ? `#${stats.next_token}` : '-';
+    document.getElementById('waitingCount').textContent = stats.waiting_patients;
+    document.getElementById('completedCount').textContent = stats.completed_patients;
+    document.getElementById('queueSummary').textContent = `${data.entries.length} queue ${data.entries.length === 1 ? 'entry' : 'entries'} for ${data.date}`;
+}
+
+function renderQueue(entries) {
+    if (!entries.length) {
+        queueBody.innerHTML = '<tr><td colspan="6" class="empty-message">No queue entries match these filters.</td></tr>';
+        return;
+    }
+    queueBody.innerHTML = entries.map(entry => {
+        const appointmentTime = new Date(entry.appointment_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const action = canManageQueue ? `<select class="queue-status-select" data-id="${entry.id}" aria-label="Update token ${entry.token_number} status">${['Waiting', 'Called', 'In Consultation', 'Completed', 'No Show'].map(status => `<option ${status === entry.queue_status ? 'selected' : ''}>${status}</option>`).join('')}</select>` : `<span class="status status-${statusClass(entry.queue_status)}">${escapeHtml(entry.queue_status)}</span>`;
+        return `<tr class="queue-row-${statusClass(entry.queue_status)}"><td><strong class="token-number">#${entry.token_number}</strong></td><td><strong>${escapeHtml(entry.patient_name)}</strong><small>${escapeHtml(entry.patient_phone)}</small></td><td>Dr. ${escapeHtml(entry.doctor_name)}<small>${escapeHtml(entry.department_name || 'General')}</small></td><td>${appointmentTime}</td><td><span class="status status-${statusClass(entry.queue_status)}">${escapeHtml(entry.queue_status)}</span></td><td>${action}</td></tr>`;
+    }).join('');
+    document.querySelectorAll('.queue-status-select').forEach(select => select.addEventListener('change', updateQueueStatus));
+}
+
+async function loadQueue() {
+    try {
+        const response = await fetch(`/api/queue?${queueQuery()}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to load queue');
+        updateQueueSummary(data);
+        renderQueue(data.entries);
+    } catch (error) { showQueueAlert(error.message); }
+}
+
+async function updateQueueStatus(event) {
+    try {
+        const response = await fetch(`/api/queue/${event.target.dataset.id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ queue_status: event.target.value }) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to update token');
+        await loadQueue();
+    } catch (error) { showQueueAlert(error.message); await loadQueue(); }
+}
+
+async function callNext() {
+    const body = {};
+    if (doctorFilter.value) body.doctor_id = doctorFilter.value;
+    if (departmentFilter.value) body.department_id = departmentFilter.value;
+    try {
+        const response = await fetch('/api/queue/next', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to call next patient');
+        showQueueAlert(data.message, 'success');
+        await loadQueue();
+    } catch (error) { showQueueAlert(error.message); }
+}
+
+document.getElementById('refreshQueue').addEventListener('click', loadQueue);
+[queueDate, doctorFilter, departmentFilter, statusFilter].forEach(control => control.addEventListener('change', loadQueue));
+if (canManageQueue) document.getElementById('callNext').addEventListener('click', callNext);
+const walkInForm = document.getElementById('walkInForm');
+if (walkInForm) walkInForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const response = await fetch('/api/queue/walk-ins', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.fromEntries(new FormData(walkInForm))) });
+    const data = await response.json();
+    if (!response.ok) { showQueueAlert(data.error || 'Unable to issue token'); return; }
+    walkInForm.reset();
+    showQueueAlert(`Token #${data.entry.token_number} issued for ${data.entry.patient_name}`, 'success');
+    await loadQueue();
+});
+loadQueue();
+window.setInterval(loadQueue, 30000);
+</script>
+{% endblock %}

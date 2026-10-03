@@ -188,7 +188,7 @@
 
             <section id="prescriptions" class="dashboard-section">
                 <h2>Prescriptions</h2>
-                {% if prescriptions %}<div class="appointments-table"><table><thead><tr><th>Medicine</th><th>Dosage</th><th>Instructions</th><th>Date</th></tr></thead><tbody>{% for prescription in prescriptions %}<tr><td>{{ prescription.medicine }}</td><td>{{ prescription.dosage }}</td><td>{{ prescription.instructions or 'N/A' }}</td><td>{{ prescription.created_at.strftime('%Y-%m-%d') }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty-message">No prescriptions available.</p>{% endif %}
+                {% if prescriptions %}<div class="appointments-table"><table><thead><tr><th>Medicine</th><th>Dosage</th><th>Instructions</th><th>Date</th><th>Document</th></tr></thead><tbody>{% for prescription in prescriptions %}<tr><td>{{ prescription.medicine }}</td><td>{{ prescription.dosage }}</td><td>{{ prescription.instructions or 'N/A' }}</td><td>{{ prescription.created_at.strftime('%Y-%m-%d') }}</td><td><a class="btn btn-small btn-secondary" href="{{ url_for('prescription_pdf', prescription_id=prescription.id) }}"><i class="fas fa-file-pdf"></i> PDF</a></td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty-message">No prescriptions available.</p>{% endif %}
             </section>
 
             <!-- Profile Section -->

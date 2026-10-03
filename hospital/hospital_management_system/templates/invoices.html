@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Invoices - MediCare Hospital{% endblock %}
+
+{% block content %}
+<div class="container invoices-page">
+    <div class="page-header invoice-page-header"><div><p class="invoice-eyebrow"><i class="fas fa-file-invoice-dollar"></i> Finance & billing</p><h1>Invoices</h1><p>Review hospital charges and issue clear, professional invoices from existing billing records.</p></div></div>
+    <div id="invoiceMessage" class="alert" role="status" hidden></div>
+
+    <section class="invoice-toolbar invoice-surface">
+        <div class="invoice-filter-row">
+            <div class="form-group"><label for="invoiceSearch">Search</label><input id="invoiceSearch" type="search" placeholder="Invoice, patient, or service"></div>
+            <div class="form-group"><label for="dateFrom">From</label><input id="dateFrom" type="date"></div>
+            <div class="form-group"><label for="dateTo">To</label><input id="dateTo" type="date"></div>
+            <div class="form-group"><label for="paymentStatus">Payment status</label><select id="paymentStatus"><option value="">All statuses</option><option value="pending">Pending</option><option value="paid">Paid</option></select></div>
+            <button class="btn btn-secondary" id="clearInvoiceFilters" type="button"><i class="fas fa-rotate-left"></i> Clear</button>
+        </div>
+    </section>
+
+    <section class="invoice-stats" aria-label="Billing statistics">
+        <div class="invoice-stat"><span>Invoices</span><strong id="invoiceCount">0</strong><small>Matching records</small></div>
+        <div class="invoice-stat invoice-stat-total"><span>Subtotal</span><strong id="invoiceSubtotal">$0.00</strong><small>Before adjustments</small></div>
+        <div class="invoice-stat invoice-stat-pending"><span>Outstanding</span><strong id="invoicePending">$0.00</strong><small>Pending payment</small></div>
+        <div class="invoice-stat invoice-stat-paid"><span>Paid</span><strong id="invoicePaid">$0.00</strong><small>Collected</small></div>
+    </section>
+
+    {% if is_admin %}
+    <section class="invoice-finalize invoice-surface">
+        <div><h2>Generate invoice</h2><p>Select existing billing records for one patient. This groups charges without creating duplicate billing records.</p></div>
+        <div class="invoice-finalize-fields"><div class="form-group"><label for="invoiceDiscount">Discount</label><input id="invoiceDiscount" type="number" min="0" step="0.01" value="0"></div><div class="form-group"><label for="invoiceTax">Tax</label><input id="invoiceTax" type="number" min="0" step="0.01" value="0"></div><button class="btn btn-primary" id="generateInvoice" type="button"><i class="fas fa-file-circle-check"></i> Generate selected</button></div>
+    </section>
+    {% endif %}
+
+    <section class="invoice-list invoice-surface">
+        <div class="invoice-section-heading"><div><h2>Invoice register</h2><p id="invoiceSummary">Loading invoices...</p></div><button class="btn btn-secondary" id="refreshInvoices" type="button"><i class="fas fa-sync-alt"></i> Refresh</button></div>
+        <div class="invoice-table-wrapper"><table class="invoice-table"><thead><tr>{% if is_admin %}<th>Select</th>{% endif %}<th>Invoice</th><th>Patient</th><th>Charges</th><th>Issued</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead><tbody id="invoiceBody"><tr><td colspan="8" class="empty-message">Loading invoices...</td></tr></tbody></table></div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const isInvoiceAdmin = {{ 'true' if is_admin else 'false' }};
+const invoiceMessage = document.getElementById('invoiceMessage');
+const invoiceBody = document.getElementById('invoiceBody');
+let currentInvoices = [];
+function escapeInvoiceHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[character])); }
+function showInvoiceMessage(message, type = 'success') { invoiceMessage.textContent = message; invoiceMessage.className = `alert alert-${type}`; invoiceMessage.hidden = false; window.setTimeout(() => { invoiceMessage.hidden = true; }, 5000); }
+function money(amount) { return `$${Number(amount || 0).toFixed(2)}`; }
+function invoiceQuery() { const params = new URLSearchParams({q: document.getElementById('invoiceSearch').value.trim(), status: document.getElementById('paymentStatus').value, date_from: document.getElementById('dateFrom').value, date_to: document.getElementById('dateTo').value}); return params; }
+function renderInvoiceStats(statistics) { document.getElementById('invoiceCount').textContent = statistics.invoice_count; document.getElementById('invoiceSubtotal').textContent = money(statistics.subtotal); document.getElementById('invoicePending').textContent = money(statistics.pending_total); document.getElementById('invoicePaid').textContent = money(statistics.paid_total); }
+function renderInvoices(invoices) {
+    currentInvoices = invoices;
+    document.getElementById('invoiceSummary').textContent = `${invoices.length} invoice${invoices.length === 1 ? '' : 's'} match the current filters`;
+    if (!invoices.length) { invoiceBody.innerHTML = `<tr><td colspan="8" class="empty-message">No invoices found.</td></tr>`; return; }
+    invoiceBody.innerHTML = invoices.map((invoice, index) => {
+        const select = isInvoiceAdmin ? (invoice.generated ? '<span class="invoice-finalized"><i class="fas fa-check"></i> Issued</span>' : `<input class="invoice-select" type="checkbox" data-index="${index}" aria-label="Select invoice ${escapeInvoiceHtml(invoice.invoice_number)}">`) : '';
+        const actions = `<a class="btn btn-small btn-secondary" href="/api/invoices/${encodeURIComponent(invoice.invoice_number)}/pdf"><i class="fas fa-download"></i> PDF</a> <a class="btn btn-small btn-secondary" target="_blank" rel="noopener" href="/api/invoices/${encodeURIComponent(invoice.invoice_number)}/pdf?print=1"><i class="fas fa-print"></i> Print</a>`;
+        return `<tr>${isInvoiceAdmin ? `<td class="invoice-select-cell">${select}</td>` : ''}<td><strong>${escapeInvoiceHtml(invoice.invoice_number)}</strong><small>${invoice.bill_ids.length} charge${invoice.bill_ids.length === 1 ? '' : 's'}</small></td><td><strong>${escapeInvoiceHtml(invoice.patient.name)}</strong><small>${escapeInvoiceHtml(invoice.patient.email)}</small></td><td>${invoice.lines.map(line => `<span class="invoice-line-label">${escapeInvoiceHtml(line.category)}: ${escapeInvoiceHtml(line.description)}</span>`).join('')}</td><td>${new Date(invoice.created_at).toLocaleDateString()}</td><td><strong>${money(invoice.total)}</strong><small>Subtotal ${money(invoice.subtotal)}</small></td><td><span class="status status-${invoice.status.toLowerCase()}">${escapeInvoiceHtml(invoice.status)}</span>${invoice.payment_date ? `<small>Paid ${new Date(invoice.payment_date).toLocaleDateString()}</small>` : ''}</td><td class="invoice-actions">${actions}</td></tr>`;
+    }).join('');
+}
+async function loadInvoices() { try { const response = await fetch(`/api/invoices?${invoiceQuery()}`); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Unable to load invoices'); renderInvoiceStats(result.statistics); renderInvoices(result.invoices); } catch (error) { showInvoiceMessage(error.message, 'danger'); } }
+async function generateSelectedInvoice() { const selected = [...document.querySelectorAll('.invoice-select:checked')].map(input => currentInvoices[Number(input.dataset.index)].bill_ids).flat(); if (!selected.length) { showInvoiceMessage('Select at least one existing billing record.', 'danger'); return; } try { const response = await fetch('/api/invoices/generate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({bill_ids: selected, discount: document.getElementById('invoiceDiscount').value, tax: document.getElementById('invoiceTax').value})}); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Unable to generate invoice'); showInvoiceMessage(`Invoice ${result.invoice.invoice_number} generated successfully.`); await loadInvoices(); } catch (error) { showInvoiceMessage(error.message, 'danger'); } }
+['invoiceSearch', 'dateFrom', 'dateTo', 'paymentStatus'].forEach(id => document.getElementById(id).addEventListener('input', loadInvoices));
+document.getElementById('clearInvoiceFilters').addEventListener('click', () => { ['invoiceSearch', 'dateFrom', 'dateTo'].forEach(id => document.getElementById(id).value = ''); document.getElementById('paymentStatus').value = ''; loadInvoices(); });
+document.getElementById('refreshInvoices').addEventListener('click', loadInvoices);
+if (isInvoiceAdmin) document.getElementById('generateInvoice').addEventListener('click', generateSelectedInvoice);
+loadInvoices();
+</script>
+{% endblock %}

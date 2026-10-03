@@ -12,6 +12,7 @@
     <section class="billing-section">
         <div class="billing-header">
             <h2>Create New Bill</h2>
+            {% if session.get('user_id') %}<a class="btn btn-secondary" href="{{ url_for('invoices_page') }}"><i class="fas fa-file-invoice-dollar"></i> Invoice register</a>{% endif %}
             {% if session.get('user_type') == 'admin' %}
             <button class="btn btn-primary" id="createBillBtn">+ Create Bill</button>
             {% endif %}
