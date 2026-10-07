@@ -147,6 +147,10 @@ The patient chooses their own username, email, and password during registration.
 ### Permissions
 - **Admin**: manage doctors, staff, services, bills, medical records, prescriptions, service requests, reports, and appointment statuses.
 - **Patient**: view hospital data, book appointments, request services, view bills, pay eligible bills, view medical records and prescriptions, and update their profile.
+- **Audit logs**: administrators can review security and operational events at `/audit-logs`, with search, date, user, action, and module filters. Audit records are read-only through the application and never store passwords or reset tokens.
+- **Emergency management**: authorized staff can register emergency cases, assign priorities, link patients and appointments, manage ambulance drivers and vehicle statuses, and monitor the database-backed emergency dashboard at `/emergency`.
+- **Blood bank management**: authorized staff can maintain A+/A-/B+/B-/AB+/AB-/O+/O- inventory, record eligible donors and donations, process patient blood requests, and monitor low-stock groups at `/blood-bank`.
+- **Secure patient QR IDs**: patients can display, download, or print a rotating 30-day QR identifier from their profile. QR values contain only an opaque token, are stored as hashes, and require authenticated profile authorization when scanned.
 
 ### Running Directly From the Application Directory
 If you are already inside `/workspaces/hospital`, enter the application directory first:
@@ -164,6 +168,10 @@ python app.py
 - `/register` - Patient registration
 - `/admin-dashboard` - Admin management dashboard
 - `/admin-reports` - Admin charts and reports
+- `/audit-logs` - Admin audit log review
+- `/emergency` - Emergency cases and ambulance management
+- `/blood-bank` - Blood inventory, donors, donations, and requests
+- `/patient-profile` - Patient profile and secure QR ID
 - `/services` - Service catalog and patient service requests
 - `/appointments` - Book appointments
 - `/calendar` - Authenticated appointment calendar

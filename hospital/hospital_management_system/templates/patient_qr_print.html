@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Patient QR ID</title>
+    <style>
+        body { font-family: Arial, sans-serif; color: #17384a; text-align: center; margin: 48px auto; max-width: 420px; }
+        img { width: 280px; height: 280px; padding: 12px; border: 1px solid #dbe5eb; }
+        h1 { margin-bottom: 6px; }
+        p { color: #607581; }
+        .print-action { margin-top: 22px; padding: 10px 16px; cursor: pointer; }
+        @media print { .print-action { display: none; } }
+    </style>
+</head>
+<body onload="window.print()">
+    <h1>Secure Patient QR ID</h1>
+    <p>{{ patient.full_name }}</p>
+    <img src="{{ url_for('patient_qr_code', token=token) }}" alt="Secure patient QR ID">
+    <p>Scan only through the authenticated hospital system.</p>
+    <button class="print-action" type="button" onclick="window.print()">Print</button>
+</body>
+</html>

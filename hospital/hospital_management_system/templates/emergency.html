@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Emergency Management - MediCare Hospital{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/emergency.css') }}">{% endblock %}
+
+{% block content %}
+<div class="container emergency-page">
+    <div class="emergency-header">
+        <div>
+            <h1>Emergency Management</h1>
+            <p>Register cases, coordinate ambulance response, and monitor emergency priorities.</p>
+        </div>
+        <span class="emergency-live">Live database status</span>
+    </div>
+
+    <div id="emergencyMessage" class="alert emergency-message" hidden role="status"></div>
+    <section class="emergency-stats" aria-label="Emergency statistics">
+        <div class="emergency-stat"><span>Total cases</span><strong id="totalCases">0</strong></div>
+        <div class="emergency-stat critical"><span>Critical</span><strong id="criticalCases">0</strong></div>
+        <div class="emergency-stat active"><span>Active cases</span><strong id="activeCases">0</strong></div>
+        <div class="emergency-stat available"><span>Ambulances available</span><strong id="availableAmbulances">0</strong></div>
+        <div class="emergency-stat"><span>Ambulances in use</span><strong id="ambulancesInUse">0</strong></div>
+    </section>
+
+    <div class="emergency-grid">
+        <section class="emergency-panel">
+            <h2>Register Emergency Case</h2>
+            <p>Use an existing patient or register walk-in details.</p>
+            <form id="caseForm" class="emergency-form">
+                {% if not is_patient %}
+                <label>Existing patient
+                    <select id="patientId"><option value="">Walk-in patient</option>{% for patient in patients %}<option value="{{ patient.id }}">{{ patient.full_name }} ({{ patient.email }})</option>{% endfor %}</select>
+                </label>
+                {% endif %}
+                <label>Patient name
+                    <input id="patientName" maxlength="100" value="{{ patients[0].full_name if is_patient and patients else '' }}" {% if is_patient %}readonly{% endif %} required>
+                </label>
+                <label>Patient email
+                    <input id="patientEmail" type="email" maxlength="100" value="{{ patients[0].email if is_patient and patients else '' }}" {% if is_patient %}readonly{% endif %}>
+                </label>
+                <label>Patient phone
+                    <input id="patientPhone" maxlength="20" value="{{ patients[0].phone if is_patient and patients and patients[0].phone else '' }}" {% if is_patient %}readonly{% endif %}>
+                </label>
+                <label>Emergency type
+                    <input id="emergencyType" maxlength="100" placeholder="Chest pain, trauma, breathing difficulty" required>
+                </label>
+                <label>Priority
+                    <select id="priority">{% for priority in emergency_priorities %}<option value="{{ priority }}" {% if priority == 'Medium' %}selected{% endif %}>{{ priority }}</option>{% endfor %}</select>
+                </label>
+                {% if not is_patient %}
+                <label>Appointment link
+                    <select id="appointmentId"><option value="">No linked appointment</option>{% for appointment in appointments %}<option value="{{ appointment.id }}">#{{ appointment.id }} - {{ appointment.patient_name }} - {{ appointment.appointment_date.strftime('%Y-%m-%d %H:%M') }}</option>{% endfor %}</select>
+                </label>
+                <label>Assigned doctor
+                    <select id="doctorId"><option value="">Unassigned</option>{% for doctor in doctors %}<option value="{{ doctor.id }}">{{ doctor.name }}</option>{% endfor %}</select>
+                </label>
+                {% endif %}
+                <label>Details
+                    <textarea id="description" rows="3" maxlength="1000" placeholder="Relevant symptoms or arrival notes"></textarea>
+                </label>
+                <div class="form-actions"><button class="btn btn-danger" type="submit"><i class="fas fa-truck-medical"></i> Register case</button></div>
+            </form>
+        </section>
+
+        {% if not is_patient %}
+        <section class="emergency-panel">
+            <h2>Ambulance Fleet</h2>
+            <p>Statuses reflect the latest saved operational state.</p>
+            <form id="ambulanceForm" class="emergency-form" style="margin-bottom:20px;">
+                <label>Vehicle number<input id="vehicleNumber" maxlength="30" placeholder="AMB-001" required></label>
+                <label>Driver name<input id="driverName" maxlength="100" required></label>
+                <label>Driver phone<input id="driverPhone" maxlength="20"></label>
+                <label>Initial status<select id="ambulanceStatus">{% for status in ambulance_statuses %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></label>
+                <div class="form-actions"><button class="btn btn-primary" type="submit">Add ambulance</button></div>
+            </form>
+            <div class="emergency-table-wrap"><table class="emergency-table"><thead><tr><th>Vehicle</th><th>Driver</th><th>Status</th><th>Update</th></tr></thead><tbody id="ambulancesBody"><tr><td colspan="4">Loading ambulances...</td></tr></tbody></table></div>
+        </section>
+        {% endif %}
+    </div>
+
+    <section class="emergency-panel emergency-section">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px;">
+            <div><h2>Emergency Cases</h2><p style="margin-bottom:0;">Prioritized from the current database state.</p></div>
+            <button class="btn btn-secondary" type="button" id="refreshEmergency"><i class="fas fa-sync-alt"></i> Refresh</button>
+        </div>
+        <div class="emergency-table-wrap"><table class="emergency-table"><thead><tr><th>Patient</th><th>Priority</th><th>Emergency</th><th>Status</th><th>Department / Doctor</th><th>Ambulance</th><th>Actions</th></tr></thead><tbody id="casesBody"><tr><td colspan="7">Loading emergency cases...</td></tr></tbody></table></div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const isPatient = {{ is_patient|tojson }};
+const emergencyStatuses = {{ emergency_statuses|tojson }};
+const ambulanceStatuses = {{ ambulance_statuses|tojson }};
+const emergencyMessage = document.getElementById('emergencyMessage');
+let latestAmbulances = [];
+
+function escapeEmergency(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, character => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[character]));
+}
+function statusClass(value) { return String(value || '').toLowerCase().replace(/\s+/g, '-'); }
+function showEmergencyMessage(message, type = 'success') {
+    emergencyMessage.textContent = message;
+    emergencyMessage.className = `alert alert-${type} emergency-message`;
+    emergencyMessage.hidden = false;
+    window.setTimeout(() => { emergencyMessage.hidden = true; }, 5000);
+}
+function setStats(statistics) {
+    document.getElementById('totalCases').textContent = statistics.total_cases;
+    document.getElementById('criticalCases').textContent = statistics.critical_cases;
+    document.getElementById('activeCases').textContent = statistics.active_cases;
+    document.getElementById('availableAmbulances').textContent = statistics.ambulances_available;
+    document.getElementById('ambulancesInUse').textContent = statistics.ambulances_in_use;
+}
+function renderAmbulances(ambulances) {
+    latestAmbulances = ambulances;
+    const body = document.getElementById('ambulancesBody');
+    if (!body) return;
+    body.innerHTML = ambulances.length ? ambulances.map(ambulance => `<tr><td><strong>${escapeEmergency(ambulance.vehicle_number)}</strong></td><td>${escapeEmergency(ambulance.driver_name)}<br><small>${escapeEmergency(ambulance.driver_phone || '')}</small></td><td><span class="emergency-badge status-${statusClass(ambulance.status)}">${escapeEmergency(ambulance.status)}</span></td><td><select aria-label="Update ambulance status" onchange="updateAmbulance(${ambulance.id}, this.value)">${ambulanceStatuses.map(status => `<option value="${escapeEmergency(status)}" ${status === ambulance.status ? 'selected' : ''}>${escapeEmergency(status)}</option>`).join('')}</select></td></tr>`).join('') : '<tr><td colspan="4">No ambulances registered.</td></tr>';
+}
+function renderCases(cases) {
+    const body = document.getElementById('casesBody');
+    if (!cases.length) { body.innerHTML = '<tr><td colspan="7">No emergency cases registered.</td></tr>'; return; }
+    body.innerHTML = cases.map(item => {
+        const ambulance = item.ambulance ? `${escapeEmergency(item.ambulance.vehicle_number)} <span class="emergency-badge status-${statusClass(item.ambulance.status)}">${escapeEmergency(item.ambulance.status)}</span>` : '<span style="color:#788993">Not requested</span>';
+        const actions = isPatient ? '' : `<select aria-label="Update case status" onchange="updateCase(${item.id}, this.value)">${emergencyStatuses.map(status => `<option value="${escapeEmergency(status)}" ${status === item.status ? 'selected' : ''}>${escapeEmergency(status)}</option>`).join('')}</select>${!item.ambulance ? `<button class="btn btn-small btn-warning" type="button" onclick="requestAmbulance(${item.id})">Request ambulance</button>` : ''}`;
+        return `<tr><td><strong>${escapeEmergency(item.patient_name)}</strong><br><small>${escapeEmergency(item.patient_phone || item.patient_email || '')}</small></td><td><span class="emergency-badge priority-${statusClass(item.priority)}">${escapeEmergency(item.priority)}</span></td><td>${escapeEmergency(item.emergency_type)}<br><small>${escapeEmergency(item.description || '')}</small></td><td><span class="emergency-badge status-${statusClass(item.status)}">${escapeEmergency(item.status)}</span></td><td>${escapeEmergency(item.department_name || 'Emergency')}<br><small>${escapeEmergency(item.assigned_doctor_name || 'Unassigned')}</small></td><td>${ambulance}</td><td><div class="emergency-actions">${actions}</div></td></tr>`;
+    }).join('');
+}
+async function loadEmergency() {
+    try {
+        const response = await fetch('/api/emergency-dashboard');
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Unable to load emergency dashboard.');
+        setStats(result.statistics); renderCases(result.cases); renderAmbulances(result.ambulances || []);
+    } catch (error) { showEmergencyMessage(error.message, 'danger'); }
+}
+async function submitJson(url, method, payload) {
+    const response = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Unable to save emergency information.');
+    return result;
+}
+async function updateCase(caseId, status) {
+    try { await submitJson(`/api/emergency-cases/${caseId}`, 'PUT', {status}); showEmergencyMessage('Emergency case updated.'); loadEmergency(); }
+    catch (error) { showEmergencyMessage(error.message, 'danger'); }
+}
+async function requestAmbulance(caseId) {
+    try { await submitJson(`/api/emergency-cases/${caseId}/ambulance`, 'POST', {}); showEmergencyMessage('Ambulance assigned.'); loadEmergency(); }
+    catch (error) { showEmergencyMessage(error.message, 'danger'); }
+}
+async function updateAmbulance(ambulanceId, status) {
+    try { await submitJson(`/api/ambulances/${ambulanceId}`, 'PUT', {status}); showEmergencyMessage('Ambulance status updated.'); loadEmergency(); }
+    catch (error) { showEmergencyMessage(error.message, 'danger'); loadEmergency(); }
+}
+const caseForm = document.getElementById('caseForm');
+caseForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const payload = {patient_name: document.getElementById('patientName').value, patient_email: document.getElementById('patientEmail').value, patient_phone: document.getElementById('patientPhone').value, emergency_type: document.getElementById('emergencyType').value, priority: document.getElementById('priority').value, description: document.getElementById('description').value};
+    if (!isPatient) { payload.patient_id = document.getElementById('patientId').value || null; payload.appointment_id = document.getElementById('appointmentId').value || null; payload.assigned_doctor_id = document.getElementById('doctorId').value || null; }
+    try { await submitJson('/api/emergency-cases', 'POST', payload); caseForm.reset(); showEmergencyMessage('Emergency case registered.'); loadEmergency(); }
+    catch (error) { showEmergencyMessage(error.message, 'danger'); }
+});
+const ambulanceForm = document.getElementById('ambulanceForm');
+if (ambulanceForm) ambulanceForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    try { await submitJson('/api/ambulances', 'POST', {vehicle_number: document.getElementById('vehicleNumber').value, driver_name: document.getElementById('driverName').value, driver_phone: document.getElementById('driverPhone').value, status: document.getElementById('ambulanceStatus').value}); ambulanceForm.reset(); showEmergencyMessage('Ambulance added.'); loadEmergency(); }
+    catch (error) { showEmergencyMessage(error.message, 'danger'); }
+});
+document.getElementById('refreshEmergency').addEventListener('click', loadEmergency);
+loadEmergency();
+window.setInterval(loadEmergency, 15000);
+</script>
+{% endblock %}

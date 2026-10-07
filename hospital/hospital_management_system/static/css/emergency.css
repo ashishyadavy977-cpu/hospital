@@ -1,0 +1,41 @@
+.emergency-page { padding: 32px 0 56px; }
+.emergency-header { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 24px; }
+.emergency-header h1 { margin: 0 0 6px; color: #162b3a; }
+.emergency-header p { margin: 0; color: #687987; }
+.emergency-live { display: inline-flex; align-items: center; gap: 8px; color: #216b4a; font-size: .9rem; font-weight: 600; }
+.emergency-live::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: #38a169; box-shadow: 0 0 0 4px rgba(56, 161, 105, .14); }
+.emergency-grid { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 22px; align-items: start; }
+.emergency-panel { background: #fff; border: 1px solid #dbe5eb; border-radius: 8px; box-shadow: 0 4px 16px rgba(26, 56, 74, .07); padding: 22px; }
+.emergency-panel h2 { margin: 0 0 4px; color: #19384b; font-size: 1.2rem; }
+.emergency-panel > p { color: #71808a; margin: 0 0 18px; font-size: .92rem; }
+.emergency-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 22px; }
+.emergency-stat { background: #fff; border: 1px solid #dbe5eb; border-radius: 8px; padding: 16px; }
+.emergency-stat span { display: block; color: #70808d; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+.emergency-stat strong { display: block; color: #18384a; font-size: 1.75rem; margin-top: 5px; }
+.emergency-stat.critical strong { color: #c53030; }
+.emergency-stat.active strong { color: #b7791f; }
+.emergency-stat.available strong { color: #25815a; }
+.emergency-form { display: grid; gap: 12px; }
+.emergency-form label { display: grid; gap: 5px; color: #3f5360; font-size: .86rem; font-weight: 600; }
+.emergency-form input, .emergency-form select, .emergency-form textarea { width: 100%; border: 1px solid #cbd8df; border-radius: 5px; padding: 9px 10px; font: inherit; color: #263c48; background: #fff; }
+.emergency-form textarea { resize: vertical; }
+.emergency-form .form-actions { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.emergency-message { margin-bottom: 16px; }
+.emergency-table-wrap { overflow-x: auto; }
+.emergency-table { width: 100%; border-collapse: collapse; min-width: 780px; }
+.emergency-table th, .emergency-table td { border-bottom: 1px solid #e7eef2; padding: 12px 10px; text-align: left; vertical-align: top; }
+.emergency-table th { color: #61737f; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
+.emergency-table td { color: #304753; font-size: .9rem; }
+.emergency-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 9px; font-size: .74rem; font-weight: 700; white-space: nowrap; }
+.emergency-badge.priority-critical, .emergency-badge.status-maintenance { color: #9b2c2c; background: #fff5f5; }
+.emergency-badge.priority-high, .emergency-badge.status-assigned { color: #975a16; background: #fffaf0; }
+.emergency-badge.priority-medium, .emergency-badge.status-on-route { color: #2b6cb0; background: #ebf8ff; }
+.emergency-badge.priority-low, .emergency-badge.status-available { color: #276749; background: #f0fff4; }
+.emergency-badge.status-registered, .emergency-badge.status-under-treatment { color: #6b46c1; background: #faf5ff; }
+.emergency-badge.status-admitted, .emergency-badge.status-arrived { color: #276749; background: #f0fff4; }
+.emergency-badge.status-discharged, .emergency-badge.status-closed { color: #52636d; background: #f1f5f7; }
+.emergency-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.emergency-actions select { border: 1px solid #cbd8df; border-radius: 4px; padding: 5px; font: inherit; max-width: 150px; }
+.emergency-section { margin-top: 22px; }
+@media (max-width: 980px) { .emergency-grid { grid-template-columns: 1fr; } .emergency-stats { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 620px) { .emergency-header { align-items: start; flex-direction: column; } .emergency-stats { grid-template-columns: repeat(2, 1fr); } .emergency-panel { padding: 16px; } }

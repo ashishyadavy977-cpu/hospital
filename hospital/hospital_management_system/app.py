@@ -7,6 +7,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from functools import wraps
 import json
+import hashlib
+import secrets
+from io import BytesIO
 from sqlalchemy import inspect, text, func, distinct, select
 
 app = Flask(__name__)
@@ -125,6 +128,82 @@ class Appointment(db.Model):
     queue_completed_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.now)
     doctor = db.relationship('Doctor', backref='appointments')
+
+class Ambulance(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_number = db.Column(db.String(30), unique=True, nullable=False)
+    driver_name = db.Column(db.String(100), nullable=False)
+    driver_phone = db.Column(db.String(20))
+    status = db.Column(db.String(20), nullable=False, default='Available')
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+class EmergencyCase(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    patient_name = db.Column(db.String(100), nullable=False)
+    patient_email = db.Column(db.String(100))
+    patient_phone = db.Column(db.String(20))
+    emergency_type = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    priority = db.Column(db.String(20), nullable=False, default='Medium')
+    status = db.Column(db.String(30), nullable=False, default='Registered')
+    department_id = db.Column(db.Integer, db.ForeignKey('department.id'))
+    appointment_id = db.Column(db.Integer, db.ForeignKey('appointment.id'))
+    assigned_doctor_id = db.Column(db.Integer, db.ForeignKey('doctor.id'))
+    ambulance_id = db.Column(db.Integer, db.ForeignKey('ambulance.id'))
+    ambulance_requested_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    patient = db.relationship('User', foreign_keys=[patient_id], backref='emergency_cases')
+    department = db.relationship('Department', backref='emergency_cases')
+    appointment = db.relationship('Appointment', backref='emergency_cases')
+    assigned_doctor = db.relationship('Doctor', backref='emergency_cases')
+    ambulance = db.relationship('Ambulance', backref='emergency_cases')
+
+class BloodInventory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    blood_group = db.Column(db.String(3), unique=True, nullable=False)
+    available_units = db.Column(db.Integer, nullable=False, default=0)
+    reserved_units = db.Column(db.Integer, nullable=False, default=0)
+    low_stock_threshold = db.Column(db.Integer, nullable=False, default=10)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+class BloodDonor(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    full_name = db.Column(db.String(100), nullable=False)
+    blood_group = db.Column(db.String(3), nullable=False)
+    phone = db.Column(db.String(20))
+    email = db.Column(db.String(100))
+    eligibility_status = db.Column(db.String(20), nullable=False, default='Eligible')
+    last_donation_date = db.Column(db.Date)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+class BloodDonation(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    donor_id = db.Column(db.Integer, db.ForeignKey('blood_donor.id'), nullable=False)
+    blood_group = db.Column(db.String(3), nullable=False)
+    units = db.Column(db.Integer, nullable=False)
+    donation_date = db.Column(db.Date, nullable=False, default=date.today)
+    status = db.Column(db.String(20), nullable=False, default='Collected')
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    donor = db.relationship('BloodDonor', backref='donations')
+
+class BloodRequest(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    blood_group = db.Column(db.String(3), nullable=False)
+    units_requested = db.Column(db.Integer, nullable=False)
+    urgency = db.Column(db.String(20), nullable=False, default='Routine')
+    status = db.Column(db.String(20), nullable=False, default='Pending')
+    notes = db.Column(db.Text)
+    requested_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_at = db.Column(db.DateTime, default=datetime.now)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    fulfilled_at = db.Column(db.DateTime)
+    patient = db.relationship('User', foreign_keys=[patient_id], backref='blood_requests')
+    requested_by = db.relationship('User', foreign_keys=[requested_by_id])
 
 class Bill(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -251,6 +330,30 @@ class User(db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
+class AuditLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), index=True)
+    username = db.Column(db.String(80), index=True)
+    role = db.Column(db.String(20), index=True)
+    action = db.Column(db.String(80), nullable=False, index=True)
+    module = db.Column(db.String(80), nullable=False, index=True)
+    record_id = db.Column(db.String(80), index=True)
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    metadata_json = db.Column(db.Text)
+    ip_address = db.Column(db.String(45))
+
+    user = db.relationship('User', backref=db.backref('audit_logs', lazy='dynamic'))
+
+class PatientQRToken(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    token_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    revoked_at = db.Column(db.DateTime)
+    last_used_at = db.Column(db.DateTime)
+    patient = db.relationship('User', backref='patient_qr_tokens')
+
 # ==================== UTILITY FUNCTIONS ====================
 
 def allowed_file(filename):
@@ -264,6 +367,199 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
+
+ROLES = {'admin', 'doctor', 'receptionist', 'nurse', 'lab_staff', 'pharmacist', 'patient'}
+PERMISSIONS = {
+    'admin': {'*'},
+    'doctor': {'patients.read', 'appointments.read', 'appointments.write', 'prescriptions.read', 'prescriptions.write', 'medical_records.read', 'medical_records.write', 'lab.read', 'lab.write', 'emergency.read', 'emergency.write', 'blood.read', 'blood.request', 'blood.manage'},
+    'receptionist': {'patients.read', 'appointments.read', 'appointments.write', 'billing.read', 'billing.write', 'queue.read', 'queue.write', 'lab.write', 'emergency.read', 'emergency.write', 'blood.read', 'blood.request'},
+    'nurse': {'patients.read', 'appointments.read', 'medical_records.read', 'lab.read', 'queue.read', 'queue.write', 'emergency.read', 'emergency.write', 'blood.read', 'blood.request', 'blood.manage'},
+    'lab_staff': {'lab.read', 'lab.write'},
+    'pharmacist': {'pharmacy.read', 'pharmacy.write'},
+    'patient': {'appointments.read', 'appointments.write', 'prescriptions.read', 'medical_records.read', 'lab.read', 'billing.read', 'profile.write', 'emergency.read', 'emergency.write', 'blood.read', 'blood.request'}
+}
+
+def current_user():
+    user_id = session.get('user_id')
+    return User.query.get(user_id) if user_id else None
+
+QR_TOKEN_LIFETIME = timedelta(days=30)
+
+def patient_qr_hash(raw_token):
+    return hashlib.sha256(raw_token.encode('utf-8')).hexdigest()
+
+def issue_patient_qr_token(patient):
+    now = datetime.now()
+    PatientQRToken.query.filter(
+        PatientQRToken.patient_id == patient.id,
+        PatientQRToken.revoked_at.is_(None)
+    ).update({'revoked_at': now}, synchronize_session=False)
+    raw_token = secrets.token_urlsafe(32)
+    qr_token = PatientQRToken(
+        patient_id=patient.id,
+        token_hash=patient_qr_hash(raw_token),
+        expires_at=now + QR_TOKEN_LIFETIME
+    )
+    db.session.add(qr_token)
+    db.session.commit()
+    record_audit('issue', 'patient_qr', qr_token.id, {'patient_id': patient.id})
+    db.session.commit()
+    return raw_token
+
+def active_patient_qr_token(raw_token):
+    if not raw_token or len(raw_token) > 200:
+        return None
+    qr_token = PatientQRToken.query.filter_by(token_hash=patient_qr_hash(raw_token)).first()
+    if not qr_token or qr_token.revoked_at or qr_token.expires_at <= datetime.now():
+        return None
+    return qr_token
+
+AUDIT_SENSITIVE_KEYS = {'password', 'password_hash', 'token', 'secret', 'authorization', 'cookie', 'csrf', 'api_key'}
+
+def _audit_safe_value(value, key=None):
+    if key and any(sensitive in key.lower() for sensitive in AUDIT_SENSITIVE_KEYS):
+        return '[REDACTED]'
+    if isinstance(value, dict):
+        return {str(item_key): _audit_safe_value(item_value, str(item_key)) for item_key, item_value in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_audit_safe_value(item) for item in value[:50]]
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value if not isinstance(value, str) else value[:500]
+    return str(value)[:500]
+
+def record_audit(action, module, record_id=None, metadata=None, user=None):
+    user = user or current_user()
+    safe_metadata = _audit_safe_value(metadata or {})
+    db.session.add(AuditLog(
+        user_id=user.id if user else None,
+        username=user.username if user else None,
+        role=user.user_type if user else None,
+        action=action,
+        module=module,
+        record_id=str(record_id) if record_id is not None else None,
+        metadata_json=json.dumps(safe_metadata, separators=(',', ':')),
+        ip_address=request.remote_addr if request else None
+    ))
+
+def has_permission(user, permission):
+    return bool(user and user.user_type in ROLES and ('*' in PERMISSIONS[user.user_type] or permission in PERMISSIONS[user.user_type]))
+
+EMERGENCY_PRIORITIES = {'Critical', 'High', 'Medium', 'Low'}
+EMERGENCY_STATUSES = {'Registered', 'Under Treatment', 'Admitted', 'Discharged', 'Closed'}
+AMBULANCE_STATUSES = {'Available', 'Assigned', 'On Route', 'Arrived', 'Maintenance'}
+EMERGENCY_STAFF_ROLES = {'admin', 'doctor', 'receptionist', 'nurse'}
+BLOOD_GROUPS = {'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'}
+BLOOD_REQUEST_STATUSES = {'Pending', 'Approved', 'Rejected', 'Fulfilled'}
+BLOOD_REQUEST_URGENCY = {'Routine', 'Urgent', 'Critical'}
+BLOOD_DONATION_STATUSES = {'Collected', 'Rejected'}
+BLOOD_MANAGEMENT_ROLES = {'admin', 'doctor', 'nurse'}
+
+def ensure_blood_inventory():
+    existing_groups = {item.blood_group for item in BloodInventory.query.all()}
+    for blood_group in sorted(BLOOD_GROUPS - existing_groups):
+        db.session.add(BloodInventory(blood_group=blood_group))
+    if BLOOD_GROUPS - existing_groups:
+        db.session.commit()
+
+def blood_inventory_payload(item):
+    return {
+        'id': item.id,
+        'blood_group': item.blood_group,
+        'available_units': item.available_units,
+        'reserved_units': item.reserved_units,
+        'total_units': item.available_units + item.reserved_units,
+        'low_stock_threshold': item.low_stock_threshold,
+        'is_low_stock': item.available_units <= item.low_stock_threshold,
+        'updated_at': item.updated_at.isoformat() if item.updated_at else None
+    }
+
+def blood_donor_payload(donor):
+    return {
+        'id': donor.id,
+        'full_name': donor.full_name,
+        'blood_group': donor.blood_group,
+        'eligibility_status': donor.eligibility_status,
+        'last_donation_date': donor.last_donation_date.isoformat() if donor.last_donation_date else None,
+        'created_at': donor.created_at.isoformat() if donor.created_at else None
+    }
+
+def blood_request_payload(blood_request, viewer=None):
+    return {
+        'id': blood_request.id,
+        'patient_id': blood_request.patient_id,
+        'patient_name': 'You' if viewer and viewer.user_type == 'patient' else (blood_request.patient.full_name if blood_request.patient else 'Patient'),
+        'blood_group': blood_request.blood_group,
+        'units_requested': blood_request.units_requested,
+        'urgency': blood_request.urgency,
+        'status': blood_request.status,
+        'notes': blood_request.notes,
+        'created_at': blood_request.created_at.isoformat() if blood_request.created_at else None,
+        'updated_at': blood_request.updated_at.isoformat() if blood_request.updated_at else None,
+        'fulfilled_at': blood_request.fulfilled_at.isoformat() if blood_request.fulfilled_at else None
+    }
+
+def ambulance_payload(ambulance):
+    return {
+        'id': ambulance.id,
+        'vehicle_number': ambulance.vehicle_number,
+        'driver_name': ambulance.driver_name,
+        'driver_phone': ambulance.driver_phone,
+        'status': ambulance.status,
+        'notes': ambulance.notes,
+        'created_at': ambulance.created_at.isoformat() if ambulance.created_at else None
+    }
+
+def emergency_case_payload(case):
+    return {
+        'id': case.id,
+        'patient_id': case.patient_id,
+        'patient_name': case.patient_name,
+        'patient_email': case.patient_email,
+        'patient_phone': case.patient_phone,
+        'emergency_type': case.emergency_type,
+        'description': case.description,
+        'priority': case.priority,
+        'status': case.status,
+        'department_id': case.department_id,
+        'department_name': case.department.name if case.department else None,
+        'appointment_id': case.appointment_id,
+        'assigned_doctor_id': case.assigned_doctor_id,
+        'assigned_doctor_name': case.assigned_doctor.name if case.assigned_doctor else None,
+        'ambulance_id': case.ambulance_id,
+        'ambulance': ambulance_payload(case.ambulance) if case.ambulance else None,
+        'ambulance_requested_at': case.ambulance_requested_at.isoformat() if case.ambulance_requested_at else None,
+        'created_at': case.created_at.isoformat() if case.created_at else None,
+        'updated_at': case.updated_at.isoformat() if case.updated_at else None
+    }
+
+def notify_emergency_staff(case, message):
+    staff = User.query.filter(User.user_type.in_(EMERGENCY_STAFF_ROLES)).all()
+    notified_ids = {user.id for user in staff}
+    if case.assigned_doctor and case.assigned_doctor.email:
+        doctor_user = User.query.filter(db.func.lower(User.email) == case.assigned_doctor.email.lower()).first()
+        if doctor_user and doctor_user.id not in notified_ids:
+            staff.append(doctor_user)
+    for user in staff:
+        db.session.add(Notification(user_id=user.id, message=message))
+
+def permission_required(permission):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            user = current_user()
+            if not user:
+                if request.path.startswith('/api/'):
+                    return jsonify({'error': 'Authentication required'}), 401
+                flash('Please log in first', 'danger')
+                return redirect(url_for('login'))
+            if not has_permission(user, permission):
+                if request.path.startswith('/api/'):
+                    return jsonify({'error': 'Insufficient permissions'}), 403
+                flash('You do not have permission to access this page', 'danger')
+                return redirect(url_for('index'))
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
 
 def admin_required(f):
     @wraps(f)
@@ -368,7 +664,7 @@ def lab_statistics(tests):
         'today': sum(test.scheduled_date.date() == today for test in tests)
     }
 
-PHARMACY_STAFF_ROLES = {'admin', 'pharmacist', 'receptionist'}
+PHARMACY_STAFF_ROLES = {'admin', 'pharmacist'}
 
 def pharmacy_api_required(allowed_roles=PHARMACY_STAFF_ROLES):
     if 'user_id' not in session:
@@ -579,6 +875,8 @@ def register():
         user.set_password(password)
         db.session.add(user)
         db.session.commit()
+        record_audit('create', 'patient', user.id, {'source': 'self_registration'}, user=user)
+        db.session.commit()
         
         flash('Registration successful! Please log in.', 'success')
         return redirect(url_for('login'))
@@ -597,6 +895,8 @@ def login():
             session['user_id'] = user.id
             session['username'] = user.username
             session['user_type'] = user.user_type
+            record_audit('login', 'authentication', user.id, {'method': 'standard_form'}, user=user)
+            db.session.commit()
             flash(f'Welcome back, {user.full_name}!', 'success')
             
             if user.user_type == 'admin':
@@ -607,9 +907,19 @@ def login():
                 return redirect(url_for('doctor_dashboard'))
             if user.user_type == 'patient':
                 return redirect(url_for('user_dashboard'))
+            if user.user_type == 'receptionist':
+                return redirect(url_for('queue_page'))
+            if user.user_type == 'nurse':
+                return redirect(url_for('queue_page'))
+            if user.user_type == 'lab_staff':
+                return redirect(url_for('laboratory_page'))
+            if user.user_type == 'pharmacist':
+                return redirect(url_for('pharmacy_page'))
             session.clear()
             flash('This account is not linked to a supported clinical role.', 'danger')
         else:
+            record_audit('login_failed', 'authentication', metadata={'username': username})
+            db.session.commit()
             flash('Invalid username or password', 'danger')
     
     return render_template('login.html', admin_login=False)
@@ -625,9 +935,13 @@ def admin_login():
             session['user_id'] = user.id
             session['username'] = user.username
             session['user_type'] = user.user_type
+            record_audit('login', 'authentication', user.id, {'method': 'admin_form'}, user=user)
+            db.session.commit()
             flash(f'Welcome back, {user.full_name}!', 'success')
             return redirect(url_for('admin_dashboard'))
 
+        record_audit('login_failed', 'authentication', metadata={'username': username, 'admin_login': True})
+        db.session.commit()
         flash('Invalid admin credentials', 'danger')
 
     return render_template('login.html', admin_login=True)
@@ -690,6 +1004,10 @@ def reset_password(token):
 
 @app.route('/logout')
 def logout():
+    user = current_user()
+    if user:
+        record_audit('logout', 'authentication', user.id, user=user)
+        db.session.commit()
     session.clear()
     flash('You have been logged out', 'info')
     return redirect(url_for('index'))
@@ -715,7 +1033,7 @@ def patient_profile_access(patient_id=None):
     patient = User.query.filter_by(id=patient_id or session.get('user_id'), user_type='patient').first()
     if not viewer or not patient:
         return None, None, ('Patient profile not found', 404)
-    if patient.id == viewer.id or viewer.user_type == 'admin':
+    if patient.id == viewer.id or viewer.user_type in {'admin', 'receptionist', 'nurse'}:
         return viewer, patient, None
     doctor = current_doctor(viewer) if viewer.user_type == 'doctor' else None
     if doctor and doctor_patient_appointment(doctor.id, patient.id):
@@ -749,7 +1067,54 @@ def patient_profile_page(patient_id=None):
     if access_error:
         return redirect(url_for('index'))
     data = patient_profile_data(patient)
-    return render_template('patient_profile.html', viewer=viewer, patient=patient, can_edit=viewer.id == patient.id, **data)
+    qr_token = issue_patient_qr_token(patient) if viewer.id == patient.id else None
+    return render_template('patient_profile.html', viewer=viewer, patient=patient, can_edit=viewer.id == patient.id, qr_token=qr_token, **data)
+
+@app.route('/patient/qr/<token>')
+@login_required
+def resolve_patient_qr(token):
+    qr_token = active_patient_qr_token(token)
+    if not qr_token:
+        return jsonify({'error': 'This patient QR ID is invalid, revoked, or expired'}), 404
+    viewer, patient, access_error = patient_profile_access(qr_token.patient_id)
+    if access_error:
+        return jsonify({'error': 'You are not authorized to open this patient profile'}), access_error[1]
+    qr_token.last_used_at = datetime.now()
+    db.session.commit()
+    return redirect(url_for('patient_profile_page', patient_id=patient.id))
+
+@app.route('/patient/qr-code/<token>')
+@login_required
+def patient_qr_code(token):
+    qr_token = active_patient_qr_token(token)
+    if not qr_token:
+        return jsonify({'error': 'This patient QR ID is invalid, revoked, or expired'}), 404
+    _, _, access_error = patient_profile_access(qr_token.patient_id)
+    if access_error:
+        return jsonify({'error': 'You are not authorized to access this patient QR ID'}), access_error[1]
+    try:
+        import qrcode
+    except ImportError:
+        return jsonify({'error': 'QR support is not installed. Install the application requirements.'}), 503
+    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=4)
+    qr.add_data(url_for('resolve_patient_qr', token=token, _external=True))
+    qr.make(fit=True)
+    image = qr.make_image(fill_color='black', back_color='white')
+    buffer = BytesIO()
+    image.save(buffer, format='PNG')
+    buffer.seek(0)
+    return send_file(buffer, mimetype='image/png', as_attachment=request.args.get('download') == '1', download_name=f'patient-qr-{qr_token.patient_id}.png')
+
+@app.route('/patient/qr-print/<token>')
+@login_required
+def patient_qr_print(token):
+    qr_token = active_patient_qr_token(token)
+    if not qr_token:
+        return jsonify({'error': 'This patient QR ID is invalid, revoked, or expired'}), 404
+    _, patient, access_error = patient_profile_access(qr_token.patient_id)
+    if access_error:
+        return jsonify({'error': 'You are not authorized to print this patient QR ID'}), access_error[1]
+    return render_template('patient_qr_print.html', patient=patient, token=token)
 
 @app.route('/api/patient-profile/<int:patient_id>')
 @login_required
@@ -827,10 +1192,607 @@ def admin_dashboard():
                          bills=bills,
                          service_requests=service_requests)
 
-@app.route('/api/users', methods=['GET'])
+def emergency_query_for_user(user):
+    query = EmergencyCase.query
+    if user.user_type == 'patient':
+        return query.filter(EmergencyCase.patient_id == user.id)
+    if user.user_type == 'doctor':
+        doctor = current_doctor(user)
+        return query.filter(EmergencyCase.assigned_doctor_id == doctor.id) if doctor else query.filter(EmergencyCase.id == -1)
+    return query
+
+@app.route('/emergency')
+@permission_required('emergency.read')
+def emergency_page():
+    user = current_user()
+    patients = [user] if user.user_type == 'patient' else User.query.filter_by(user_type='patient').order_by(User.full_name).all()
+    doctors = Doctor.query.order_by(Doctor.name).all() if user.user_type in EMERGENCY_STAFF_ROLES else []
+    appointments = Appointment.query.order_by(Appointment.appointment_date.desc()).limit(100).all() if user.user_type in EMERGENCY_STAFF_ROLES else Appointment.query.filter_by(user_id=user.id).order_by(Appointment.appointment_date.desc()).all()
+    ambulances = Ambulance.query.order_by(Ambulance.vehicle_number).all() if user.user_type in EMERGENCY_STAFF_ROLES else []
+    return render_template(
+        'emergency.html',
+        patients=patients,
+        doctors=doctors,
+        appointments=appointments,
+        ambulances=ambulances,
+        emergency_priorities=sorted(EMERGENCY_PRIORITIES),
+        emergency_statuses=sorted(EMERGENCY_STATUSES),
+        ambulance_statuses=sorted(AMBULANCE_STATUSES),
+        is_patient=user.user_type == 'patient'
+    )
+
+@app.route('/api/emergency-cases', methods=['GET', 'POST'])
+@permission_required('emergency.read')
+def api_emergency_cases():
+    user = current_user()
+    if request.method == 'POST':
+        if not has_permission(user, 'emergency.write'):
+            return jsonify({'error': 'Emergency registration is not permitted for this role'}), 403
+        data = request.get_json(silent=True) or {}
+        patient = None
+        patient_id = data.get('patient_id')
+        if user.user_type == 'patient':
+            patient = user
+            patient_id = user.id
+        elif patient_id:
+            try:
+                patient = User.query.filter_by(id=int(patient_id), user_type='patient').first()
+            except (TypeError, ValueError):
+                patient = None
+            if not patient:
+                return jsonify({'error': 'Patient not found'}), 404
+
+        appointment = None
+        if data.get('appointment_id'):
+            try:
+                appointment = Appointment.query.get(int(data['appointment_id']))
+            except (TypeError, ValueError):
+                appointment = None
+            if not appointment:
+                return jsonify({'error': 'Appointment not found'}), 404
+            if patient and appointment.user_id and appointment.user_id != patient.id:
+                return jsonify({'error': 'Appointment does not belong to this patient'}), 400
+            if not patient and appointment.user_id:
+                patient = User.query.filter_by(id=appointment.user_id, user_type='patient').first()
+                patient_id = patient.id if patient else None
+
+        priority = (data.get('priority') or 'Medium').strip()
+        emergency_type = (data.get('emergency_type') or '').strip()
+        patient_name = (data.get('patient_name') or (patient.full_name if patient else '')).strip()
+        if priority not in EMERGENCY_PRIORITIES:
+            return jsonify({'error': 'Invalid emergency priority'}), 400
+        if not emergency_type or not patient_name:
+            return jsonify({'error': 'Emergency type and patient name are required'}), 400
+        department = None
+        if data.get('department_id'):
+            try:
+                department = Department.query.get(int(data['department_id']))
+            except (TypeError, ValueError):
+                department = None
+            if not department:
+                return jsonify({'error': 'Emergency department not found'}), 404
+        if not department:
+            department = Department.query.filter(db.func.lower(Department.name) == 'emergency').first()
+        assigned_doctor = None
+        if data.get('assigned_doctor_id') and user.user_type != 'patient':
+            try:
+                assigned_doctor = Doctor.query.get(int(data['assigned_doctor_id']))
+            except (TypeError, ValueError):
+                assigned_doctor = None
+            if not assigned_doctor:
+                return jsonify({'error': 'Assigned doctor not found'}), 404
+
+        case = EmergencyCase(
+            patient_id=patient_id,
+            patient_name=patient_name,
+            patient_email=(data.get('patient_email') or (patient.email if patient else '')).strip() or None,
+            patient_phone=(data.get('patient_phone') or (patient.phone if patient else '')).strip() or None,
+            emergency_type=emergency_type,
+            description=(data.get('description') or '').strip() or None,
+            priority=priority,
+            department=department,
+            appointment=appointment,
+            assigned_doctor=assigned_doctor
+        )
+        db.session.add(case)
+        db.session.flush()
+        notify_emergency_staff(case, f'Emergency case #{case.id} registered: {case.patient_name} ({case.priority}).')
+        db.session.commit()
+        record_audit('create', 'emergency', case.id, {'priority': case.priority, 'patient_id': case.patient_id})
+        db.session.commit()
+        return jsonify({'success': True, 'case': emergency_case_payload(case)}), 201
+
+    query = emergency_query_for_user(user)
+    search = (request.args.get('q') or '').strip()
+    priority = (request.args.get('priority') or '').strip()
+    status = (request.args.get('status') or '').strip()
+    if search:
+        query = query.filter(db.or_(EmergencyCase.patient_name.ilike(f'%{search}%'), EmergencyCase.emergency_type.ilike(f'%{search}%'), EmergencyCase.description.ilike(f'%{search}%')))
+    if priority in EMERGENCY_PRIORITIES:
+        query = query.filter_by(priority=priority)
+    if status in EMERGENCY_STATUSES:
+        query = query.filter_by(status=status)
+    cases = query.order_by(EmergencyCase.created_at.desc()).all()
+    return jsonify({'cases': [emergency_case_payload(case) for case in cases]})
+
+@app.route('/api/emergency-cases/<int:case_id>', methods=['GET', 'PUT'])
+@permission_required('emergency.read')
+def api_emergency_case_detail(case_id):
+    user = current_user()
+    case = EmergencyCase.query.get(case_id)
+    if not case or not emergency_query_for_user(user).filter(EmergencyCase.id == case_id).first():
+        return jsonify({'error': 'Emergency case not found'}), 404
+    if request.method == 'GET':
+        return jsonify(emergency_case_payload(case))
+    if not has_permission(user, 'emergency.write') or user.user_type == 'patient':
+        return jsonify({'error': 'Emergency case updates are not permitted'}), 403
+    data = request.get_json(silent=True) or {}
+    if 'priority' in data and data['priority'] not in EMERGENCY_PRIORITIES:
+        return jsonify({'error': 'Invalid emergency priority'}), 400
+    if 'status' in data and data['status'] not in EMERGENCY_STATUSES:
+        return jsonify({'error': 'Invalid emergency status'}), 400
+    if 'assigned_doctor_id' in data:
+        try:
+            case.assigned_doctor = Doctor.query.get(int(data['assigned_doctor_id'])) if data['assigned_doctor_id'] else None
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Assigned doctor must be valid'}), 400
+        if data['assigned_doctor_id'] and not case.assigned_doctor:
+            return jsonify({'error': 'Assigned doctor not found'}), 404
+    for field in ('priority', 'status', 'description', 'emergency_type'):
+        if field in data and data[field] is not None:
+            setattr(case, field, str(data[field]).strip())
+    notify_emergency_staff(case, f'Emergency case #{case.id} updated: {case.patient_name} ({case.status}).')
+    db.session.commit()
+    record_audit('update', 'emergency', case.id, {'priority': case.priority, 'status': case.status})
+    db.session.commit()
+    return jsonify({'success': True, 'case': emergency_case_payload(case)})
+
+@app.route('/api/ambulances', methods=['GET', 'POST'])
+@login_required
+def api_ambulances():
+    user = current_user()
+    if user.user_type not in EMERGENCY_STAFF_ROLES:
+        return jsonify({'error': 'Emergency staff access required'}), 403
+    if request.method == 'POST':
+        if not has_permission(user, 'emergency.write'):
+            return jsonify({'error': 'Ambulance management is not permitted'}), 403
+        data = request.get_json(silent=True) or {}
+        vehicle_number = (data.get('vehicle_number') or '').strip()
+        driver_name = (data.get('driver_name') or '').strip()
+        status = (data.get('status') or 'Available').strip()
+        if not vehicle_number or not driver_name:
+            return jsonify({'error': 'Vehicle number and driver name are required'}), 400
+        if status not in AMBULANCE_STATUSES:
+            return jsonify({'error': 'Invalid ambulance status'}), 400
+        if Ambulance.query.filter_by(vehicle_number=vehicle_number).first():
+            return jsonify({'error': 'Vehicle number already exists'}), 409
+        ambulance = Ambulance(vehicle_number=vehicle_number, driver_name=driver_name, driver_phone=(data.get('driver_phone') or '').strip() or None, status=status, notes=(data.get('notes') or '').strip() or None)
+        db.session.add(ambulance)
+        db.session.commit()
+        record_audit('create', 'ambulance', ambulance.id, {'vehicle_number': ambulance.vehicle_number})
+        db.session.commit()
+        return jsonify({'success': True, 'ambulance': ambulance_payload(ambulance)}), 201
+    status = (request.args.get('status') or '').strip()
+    query = Ambulance.query.filter_by(status=status) if status in AMBULANCE_STATUSES else Ambulance.query
+    return jsonify({'ambulances': [ambulance_payload(ambulance) for ambulance in query.order_by(Ambulance.vehicle_number).all()]})
+
+@app.route('/api/ambulances/<int:ambulance_id>', methods=['PUT'])
+@login_required
+def update_ambulance(ambulance_id):
+    user = current_user()
+    if user.user_type not in EMERGENCY_STAFF_ROLES or not has_permission(user, 'emergency.write'):
+        return jsonify({'error': 'Emergency staff access required'}), 403
+    ambulance = Ambulance.query.get(ambulance_id)
+    if not ambulance:
+        return jsonify({'error': 'Ambulance not found'}), 404
+    data = request.get_json(silent=True) or {}
+    status = (data.get('status', ambulance.status) or '').strip()
+    if status not in AMBULANCE_STATUSES:
+        return jsonify({'error': 'Invalid ambulance status'}), 400
+    ambulance.status = status
+    ambulance.driver_name = (data.get('driver_name', ambulance.driver_name) or '').strip()
+    ambulance.driver_phone = (data.get('driver_phone', ambulance.driver_phone) or '').strip() or None
+    ambulance.notes = (data.get('notes', ambulance.notes) or '').strip() or None
+    db.session.commit()
+    record_audit('update', 'ambulance', ambulance.id, {'status': ambulance.status, 'vehicle_number': ambulance.vehicle_number})
+    db.session.commit()
+    return jsonify({'success': True, 'ambulance': ambulance_payload(ambulance)})
+
+@app.route('/api/emergency-cases/<int:case_id>/ambulance', methods=['POST'])
+@login_required
+def request_emergency_ambulance(case_id):
+    user = current_user()
+    if user.user_type not in EMERGENCY_STAFF_ROLES or not has_permission(user, 'emergency.write'):
+        return jsonify({'error': 'Emergency staff access required'}), 403
+    case = EmergencyCase.query.get(case_id)
+    if not case:
+        return jsonify({'error': 'Emergency case not found'}), 404
+    data = request.get_json(silent=True) or {}
+    ambulance = None
+    if data.get('ambulance_id'):
+        try:
+            ambulance = Ambulance.query.get(int(data['ambulance_id']))
+        except (TypeError, ValueError):
+            ambulance = None
+    else:
+        ambulance = Ambulance.query.filter_by(status='Available').order_by(Ambulance.id).first()
+    if not ambulance:
+        return jsonify({'error': 'No available ambulance found'}), 409
+    if ambulance.status not in {'Available', 'Assigned'}:
+        return jsonify({'error': 'Selected ambulance is not available'}), 409
+    case.ambulance = ambulance
+    case.ambulance_requested_at = datetime.now()
+    ambulance.status = 'Assigned'
+    notify_emergency_staff(case, f'Ambulance {ambulance.vehicle_number} assigned to emergency case #{case.id}.')
+    db.session.commit()
+    record_audit('request', 'ambulance', ambulance.id, {'emergency_case_id': case.id, 'status': ambulance.status})
+    db.session.commit()
+    return jsonify({'success': True, 'case': emergency_case_payload(case)})
+
+@app.route('/api/emergency-dashboard')
+@permission_required('emergency.read')
+def emergency_dashboard_api():
+    user = current_user()
+    cases = emergency_query_for_user(user).all()
+    ambulances = Ambulance.query.all() if user.user_type in EMERGENCY_STAFF_ROLES else []
+    return jsonify({
+        'statistics': {
+            'total_cases': len(cases),
+            'critical_cases': sum(case.priority == 'Critical' for case in cases),
+            'active_cases': sum(case.status not in {'Discharged', 'Closed'} for case in cases),
+            'ambulances_available': sum(ambulance.status == 'Available' for ambulance in ambulances),
+            'ambulances_in_use': sum(ambulance.status in {'Assigned', 'On Route', 'Arrived'} for ambulance in ambulances)
+        },
+        'cases': [emergency_case_payload(case) for case in sorted(cases, key=lambda item: item.created_at or datetime.min, reverse=True)[:20]],
+        'ambulances': [ambulance_payload(ambulance) for ambulance in ambulances]
+    })
+
+def blood_request_query_for_user(user):
+    query = BloodRequest.query
+    return query.filter(BloodRequest.patient_id == user.id) if user.user_type == 'patient' else query
+
+@app.route('/blood-bank')
+@permission_required('blood.read')
+def blood_bank_page():
+    user = current_user()
+    ensure_blood_inventory()
+    patients = User.query.filter_by(user_type='patient').order_by(User.full_name).all() if user.user_type in BLOOD_MANAGEMENT_ROLES else []
+    return render_template('blood_bank.html', blood_groups=sorted(BLOOD_GROUPS), patients=patients, is_patient=user.user_type == 'patient', can_manage=user.user_type in BLOOD_MANAGEMENT_ROLES)
+
+@app.route('/api/blood-inventory', methods=['GET'])
+@permission_required('blood.read')
+def api_blood_inventory():
+    ensure_blood_inventory()
+    blood_group = (request.args.get('blood_group') or '').strip()
+    if blood_group and blood_group not in BLOOD_GROUPS:
+        return jsonify({'error': 'Invalid blood group'}), 400
+    query = BloodInventory.query.filter_by(blood_group=blood_group) if blood_group else BloodInventory.query
+    items = query.order_by(BloodInventory.blood_group).all()
+    return jsonify({'inventory': [blood_inventory_payload(item) for item in items]})
+
+@app.route('/api/blood-inventory/<blood_group>', methods=['PUT'])
+@login_required
+def update_blood_inventory(blood_group):
+    user = current_user()
+    if user.user_type not in BLOOD_MANAGEMENT_ROLES or not has_permission(user, 'blood.manage'):
+        return jsonify({'error': 'Blood inventory management access required'}), 403
+    blood_group = blood_group.upper()
+    if blood_group not in BLOOD_GROUPS:
+        return jsonify({'error': 'Invalid blood group'}), 400
+    ensure_blood_inventory()
+    item = BloodInventory.query.filter_by(blood_group=blood_group).first()
+    data = request.get_json(silent=True) or {}
+    try:
+        available_units = int(data.get('available_units', item.available_units))
+        reserved_units = int(data.get('reserved_units', item.reserved_units))
+        low_stock_threshold = int(data.get('low_stock_threshold', item.low_stock_threshold))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Inventory values must be whole numbers'}), 400
+    if min(available_units, reserved_units, low_stock_threshold) < 0:
+        return jsonify({'error': 'Inventory values cannot be negative'}), 400
+    item.available_units = available_units
+    item.reserved_units = reserved_units
+    item.low_stock_threshold = low_stock_threshold
+    db.session.commit()
+    record_audit('update', 'blood_bank', item.id, {'blood_group': item.blood_group, 'available_units': item.available_units, 'reserved_units': item.reserved_units})
+    db.session.commit()
+    return jsonify({'success': True, 'inventory': blood_inventory_payload(item)})
+
+@app.route('/api/blood-donors', methods=['GET', 'POST'])
+@login_required
+def api_blood_donors():
+    user = current_user()
+    if user.user_type not in BLOOD_MANAGEMENT_ROLES:
+        return jsonify({'error': 'Blood donor access required'}), 403
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        full_name = (data.get('full_name') or '').strip()
+        blood_group = (data.get('blood_group') or '').strip().upper()
+        phone = (data.get('phone') or '').strip() or None
+        email = (data.get('email') or '').strip() or None
+        if not full_name or len(full_name) > 100 or blood_group not in BLOOD_GROUPS:
+            return jsonify({'error': 'Donor name and a valid blood group are required'}), 400
+        if (phone and len(phone) > 20) or (email and len(email) > 100):
+            return jsonify({'error': 'Donor contact details are too long'}), 400
+        try:
+            last_donation_date = date.fromisoformat(data['last_donation_date']) if data.get('last_donation_date') else None
+        except ValueError:
+            return jsonify({'error': 'Last donation date must be valid'}), 400
+        if last_donation_date and last_donation_date > date.today():
+            return jsonify({'error': 'Last donation date cannot be in the future'}), 400
+        donor = BloodDonor(
+            full_name=full_name,
+            blood_group=blood_group,
+            phone=phone,
+            email=email,
+            eligibility_status=(data.get('eligibility_status') or 'Eligible').strip(),
+            last_donation_date=last_donation_date
+        )
+        if donor.eligibility_status not in {'Eligible', 'Deferred'}:
+            return jsonify({'error': 'Invalid donor eligibility status'}), 400
+        db.session.add(donor)
+        db.session.commit()
+        record_audit('create', 'blood_donor', donor.id, {'blood_group': donor.blood_group})
+        db.session.commit()
+        return jsonify({'success': True, 'donor': blood_donor_payload(donor)}), 201
+    blood_group = (request.args.get('blood_group') or '').strip().upper()
+    if blood_group and blood_group not in BLOOD_GROUPS:
+        return jsonify({'error': 'Invalid blood group'}), 400
+    query = BloodDonor.query.filter_by(blood_group=blood_group) if blood_group else BloodDonor.query
+    return jsonify({'donors': [blood_donor_payload(donor) for donor in query.order_by(BloodDonor.full_name).all()]})
+
+@app.route('/api/blood-donations', methods=['GET', 'POST'])
+@login_required
+def api_blood_donations():
+    user = current_user()
+    if user.user_type not in BLOOD_MANAGEMENT_ROLES:
+        return jsonify({'error': 'Blood donation access required'}), 403
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        try:
+            donor_id = int(data.get('donor_id'))
+            units = int(data.get('units'))
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Donor and whole-number units are required'}), 400
+        donor = BloodDonor.query.get(donor_id)
+        if not donor:
+            return jsonify({'error': 'Donor not found'}), 404
+        if donor.eligibility_status != 'Eligible':
+            return jsonify({'error': 'Deferred donors cannot donate'}), 400
+        if units < 1 or units > 10:
+            return jsonify({'error': 'Donation units must be between 1 and 10'}), 400
+        try:
+            donation_date = date.fromisoformat(data.get('donation_date')) if data.get('donation_date') else date.today()
+        except ValueError:
+            return jsonify({'error': 'Donation date must be valid'}), 400
+        if donation_date > date.today():
+            return jsonify({'error': 'Donation date cannot be in the future'}), 400
+        notes = (data.get('notes') or '').strip() or None
+        if notes and len(notes) > 500:
+            return jsonify({'error': 'Donation notes are too long'}), 400
+        donation = BloodDonation(donor_id=donor.id, blood_group=donor.blood_group, units=units, donation_date=donation_date, status='Collected', notes=notes)
+        inventory = BloodInventory.query.filter_by(blood_group=donor.blood_group).first()
+        if not inventory:
+            ensure_blood_inventory()
+            inventory = BloodInventory.query.filter_by(blood_group=donor.blood_group).first()
+        inventory.available_units += units
+        donor.last_donation_date = donation_date
+        db.session.add(donation)
+        db.session.commit()
+        record_audit('create', 'blood_donation', donation.id, {'blood_group': donation.blood_group, 'units': donation.units})
+        db.session.commit()
+        return jsonify({'success': True, 'donation': {'id': donation.id, 'blood_group': donation.blood_group, 'units': donation.units, 'donation_date': donation.donation_date.isoformat()}}), 201
+    blood_group = (request.args.get('blood_group') or '').strip().upper()
+    if blood_group and blood_group not in BLOOD_GROUPS:
+        return jsonify({'error': 'Invalid blood group'}), 400
+    query = BloodDonation.query.filter_by(blood_group=blood_group) if blood_group else BloodDonation.query
+    donations = query.order_by(BloodDonation.donation_date.desc()).all()
+    return jsonify({'donations': [{'id': item.id, 'donor_id': item.donor_id, 'blood_group': item.blood_group, 'units': item.units, 'donation_date': item.donation_date.isoformat(), 'status': item.status} for item in donations]})
+
+@app.route('/api/blood-requests', methods=['GET', 'POST'])
+@permission_required('blood.read')
+def api_blood_requests():
+    user = current_user()
+    if request.method == 'POST':
+        if not has_permission(user, 'blood.request'):
+            return jsonify({'error': 'Blood requests are not permitted for this role'}), 403
+        data = request.get_json(silent=True) or {}
+        patient_id = user.id if user.user_type == 'patient' else data.get('patient_id')
+        try:
+            patient_id = int(patient_id)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'A valid patient is required'}), 400
+        patient = User.query.filter_by(id=patient_id, user_type='patient').first()
+        blood_group = (data.get('blood_group') or '').strip().upper()
+        try:
+            units = int(data.get('units_requested'))
+        except (TypeError, ValueError):
+            units = 0
+        urgency = (data.get('urgency') or 'Routine').strip()
+        notes = (data.get('notes') or '').strip() or None
+        if notes and len(notes) > 500:
+            return jsonify({'error': 'Request notes are too long'}), 400
+        if not patient or blood_group not in BLOOD_GROUPS or units < 1 or units > 100 or urgency not in BLOOD_REQUEST_URGENCY:
+            return jsonify({'error': 'Patient, valid blood group, units from 1 to 100, and urgency are required'}), 400
+        blood_request = BloodRequest(patient_id=patient.id, blood_group=blood_group, units_requested=units, urgency=urgency, notes=notes, requested_by_id=user.id)
+        db.session.add(blood_request)
+        db.session.flush()
+        staff = User.query.filter(User.user_type.in_(BLOOD_MANAGEMENT_ROLES)).all()
+        for staff_user in staff:
+            db.session.add(Notification(user_id=staff_user.id, message=f'Blood request #{blood_request.id} needs review: {blood_group}, {units} unit(s).'))
+        db.session.commit()
+        record_audit('create', 'blood_request', blood_request.id, {'blood_group': blood_group, 'units': units, 'patient_id': patient.id})
+        db.session.commit()
+        return jsonify({'success': True, 'request': blood_request_payload(blood_request, user)}), 201
+    query = blood_request_query_for_user(user)
+    blood_group = (request.args.get('blood_group') or '').strip().upper()
+    status = (request.args.get('status') or '').strip()
+    if blood_group:
+        if blood_group not in BLOOD_GROUPS:
+            return jsonify({'error': 'Invalid blood group'}), 400
+        query = query.filter_by(blood_group=blood_group)
+    if status:
+        if status not in BLOOD_REQUEST_STATUSES:
+            return jsonify({'error': 'Invalid request status'}), 400
+        query = query.filter_by(status=status)
+    return jsonify({'requests': [blood_request_payload(item, user) for item in query.order_by(BloodRequest.created_at.desc()).all()]})
+
+@app.route('/api/blood-requests/<int:request_id>', methods=['PUT'])
+@login_required
+def update_blood_request(request_id):
+    user = current_user()
+    blood_request = BloodRequest.query.get(request_id)
+    if not blood_request:
+        return jsonify({'error': 'Blood request not found'}), 404
+    if user.user_type == 'patient' and blood_request.patient_id != user.id:
+        return jsonify({'error': 'Access denied'}), 403
+    if user.user_type not in BLOOD_MANAGEMENT_ROLES or not has_permission(user, 'blood.manage'):
+        return jsonify({'error': 'Blood request management access required'}), 403
+    data = request.get_json(silent=True) or {}
+    new_status = (data.get('status') or '').strip()
+    if new_status not in BLOOD_REQUEST_STATUSES:
+        return jsonify({'error': 'Invalid request status'}), 400
+    old_status = blood_request.status
+    inventory = BloodInventory.query.filter_by(blood_group=blood_request.blood_group).first()
+    if not inventory:
+        ensure_blood_inventory()
+        inventory = BloodInventory.query.filter_by(blood_group=blood_request.blood_group).first()
+    if old_status == 'Pending' and new_status == 'Approved':
+        if inventory.available_units < blood_request.units_requested:
+            return jsonify({'error': 'Insufficient available units'}), 409
+        inventory.available_units -= blood_request.units_requested
+        inventory.reserved_units += blood_request.units_requested
+    elif old_status == 'Approved' and new_status == 'Fulfilled':
+        inventory.reserved_units -= blood_request.units_requested
+    elif old_status == 'Approved' and new_status == 'Rejected':
+        inventory.reserved_units -= blood_request.units_requested
+        inventory.available_units += blood_request.units_requested
+    elif old_status != new_status and old_status != 'Pending':
+        return jsonify({'error': 'This request status cannot be changed'}), 409
+    if inventory.reserved_units < 0:
+        return jsonify({'error': 'Reserved units cannot become negative'}), 409
+    blood_request.status = new_status
+    if new_status == 'Fulfilled':
+        blood_request.fulfilled_at = datetime.now()
+    if blood_request.patient:
+        db.session.add(Notification(user_id=blood_request.patient_id, message=f'Blood request #{blood_request.id} status: {new_status}.'))
+    db.session.commit()
+    record_audit('update', 'blood_request', blood_request.id, {'old_status': old_status, 'new_status': new_status, 'blood_group': blood_request.blood_group})
+    db.session.commit()
+    return jsonify({'success': True, 'request': blood_request_payload(blood_request, user)})
+
+@app.route('/api/blood-bank-dashboard')
+@permission_required('blood.read')
+def blood_bank_dashboard_api():
+    user = current_user()
+    ensure_blood_inventory()
+    blood_group = (request.args.get('blood_group') or '').strip().upper()
+    if blood_group and blood_group not in BLOOD_GROUPS:
+        return jsonify({'error': 'Invalid blood group'}), 400
+    inventory_query = BloodInventory.query.filter_by(blood_group=blood_group) if blood_group else BloodInventory.query
+    inventory = inventory_query.order_by(BloodInventory.blood_group).all()
+    requests_query = blood_request_query_for_user(user)
+    requests = requests_query.order_by(BloodRequest.created_at.desc()).limit(25).all()
+    all_inventory = BloodInventory.query.all()
+    return jsonify({
+        'statistics': {
+            'available_units': sum(item.available_units for item in all_inventory),
+            'reserved_units': sum(item.reserved_units for item in all_inventory),
+            'low_stock_groups': sum(item.available_units <= item.low_stock_threshold for item in all_inventory),
+            'pending_requests': requests_query.filter_by(status='Pending').count()
+        },
+        'inventory': [blood_inventory_payload(item) for item in inventory],
+        'requests': [blood_request_payload(item, user) for item in requests]
+    })
+
+def filtered_audit_logs():
+    query = AuditLog.query
+    search = (request.args.get('search') or '').strip()
+    user_id = (request.args.get('user_id') or '').strip()
+    action = (request.args.get('action') or '').strip()
+    module = (request.args.get('module') or '').strip()
+    date_from = (request.args.get('date_from') or '').strip()
+    date_to = (request.args.get('date_to') or '').strip()
+    if search:
+        pattern = f'%{search}%'
+        query = query.filter(db.or_(
+            AuditLog.username.ilike(pattern),
+            AuditLog.action.ilike(pattern),
+            AuditLog.module.ilike(pattern),
+            AuditLog.record_id.ilike(pattern),
+            AuditLog.metadata_json.ilike(pattern)
+        ))
+    if user_id:
+        try:
+            query = query.filter(AuditLog.user_id == int(user_id))
+        except ValueError:
+            query = query.filter(AuditLog.username == user_id)
+    if action:
+        query = query.filter(AuditLog.action == action)
+    if module:
+        query = query.filter(AuditLog.module == module)
+    try:
+        if date_from:
+            query = query.filter(AuditLog.timestamp >= datetime.combine(date.fromisoformat(date_from), datetime.min.time()))
+        if date_to:
+            query = query.filter(AuditLog.timestamp < datetime.combine(date.fromisoformat(date_to) + timedelta(days=1), datetime.min.time()))
+    except ValueError:
+        raise ValueError('Audit log dates must be valid dates')
+    return query.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
+
+def audit_log_payload(log):
+    try:
+        metadata = json.loads(log.metadata_json or '{}')
+    except (TypeError, ValueError):
+        metadata = {}
+    return {
+        'id': log.id,
+        'user_id': log.user_id,
+        'username': log.username or 'System/Unknown',
+        'role': log.role or 'Unknown',
+        'action': log.action,
+        'module': log.module,
+        'record_id': log.record_id,
+        'timestamp': log.timestamp.isoformat() if log.timestamp else None,
+        'metadata': metadata,
+        'ip_address': log.ip_address
+    }
+
+@app.route('/audit-logs')
 @admin_required
+def audit_logs_page():
+    try:
+        logs = filtered_audit_logs().limit(200).all()
+    except ValueError as error:
+        flash(str(error), 'danger')
+        logs = []
+    return render_template(
+        'audit_logs.html',
+        logs=[audit_log_payload(log) for log in logs],
+        users=User.query.order_by(User.username).all(),
+        actions=db.session.query(AuditLog.action).distinct().order_by(AuditLog.action).all(),
+        modules=db.session.query(AuditLog.module).distinct().order_by(AuditLog.module).all()
+    )
+
+@app.route('/api/audit-logs')
+def api_audit_logs():
+    access_error = admin_api_required()
+    if access_error:
+        return access_error
+    try:
+        logs = filtered_audit_logs().limit(500).all()
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    return jsonify({'logs': [audit_log_payload(log) for log in logs], 'count': len(logs)})
+
+@app.route('/api/users', methods=['GET'])
+@permission_required('patients.read')
 def api_users():
-    users = User.query.filter_by(user_type='patient').all()
+    user = current_user()
+    query = User.query.filter_by(user_type='patient')
+    if user.user_type == 'doctor':
+        query = query.filter(User.id.in_(doctor_patient_ids(current_doctor(user).id)))
+    users = query.order_by(User.full_name).all()
     return jsonify([{
         'id': u.id,
         'username': u.username,
@@ -876,6 +1838,8 @@ def api_user_profile():
             from datetime import datetime as dt
             user.date_of_birth = dt.fromisoformat(data.get('date_of_birth')).date()
         
+        db.session.commit()
+        record_audit('update', 'patient', user.id, {'fields': sorted(data.keys())}, user=user)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Profile updated successfully'})
 
@@ -1202,6 +2166,8 @@ def create_doctor_account(doctor_id):
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
+    record_audit('role_change', 'user', user.id, {'new_role': 'doctor', 'doctor_id': doctor.id}, user=current_user())
+    db.session.commit()
     return jsonify({'success': True, 'message': f'Login created for {doctor.name}', 'username': user.username}), 201 if not existing else 200
 
 # ==================== STAFF ====================
@@ -1347,19 +2313,31 @@ def update_service_request(request_id):
 def api_medical_records():
     user = User.query.get(session['user_id'])
     if request.method == 'POST':
-        access_error = admin_api_required()
-        if access_error:
-            return access_error
+        if not has_permission(user, 'medical_records.write'):
+            return jsonify({'error': 'Only authorized clinical staff can create medical records'}), 403
         data = request.get_json() or {}
         patient_id = data.get('patient_id')
         patient = User.query.get(patient_id) if patient_id else None
         if not patient or patient.user_type != 'patient' or not data.get('title'):
             return jsonify({'error': 'Patient and record title are required'}), 400
+        if user.user_type == 'doctor' and not doctor_patient_appointment(current_doctor(user).id, patient.id):
+            return jsonify({'error': 'Patient is outside your care scope'}), 403
         record = MedicalRecord(patient_id=patient.id, title=data['title'], diagnosis=data.get('diagnosis'), notes=data.get('notes'))
         db.session.add(record)
         db.session.commit()
+        record_audit('create', 'medical_record', record.id, {'patient_id': record.patient_id})
+        db.session.commit()
         return jsonify({'success': True, 'id': record.id})
-    records = MedicalRecord.query.all() if user.user_type == 'admin' else MedicalRecord.query.filter_by(patient_id=user.id).all()
+    if not has_permission(user, 'medical_records.read'):
+        return jsonify({'error': 'Insufficient permissions'}), 403
+    if user.user_type == 'admin':
+        records = MedicalRecord.query.all()
+    elif user.user_type == 'doctor':
+        records = MedicalRecord.query.filter(MedicalRecord.patient_id.in_(doctor_patient_ids(current_doctor(user).id))).all()
+    elif user.user_type in {'receptionist', 'nurse'}:
+        records = MedicalRecord.query.all()
+    else:
+        records = MedicalRecord.query.filter_by(patient_id=user.id).all()
     return jsonify([{'id': r.id, 'patient_id': r.patient_id, 'title': r.title, 'diagnosis': r.diagnosis, 'notes': r.notes, 'created_at': r.created_at.isoformat()} for r in records])
 
 PRESCRIPTION_STAFF_ROLES = {'admin', 'doctor'}
@@ -1396,6 +2374,9 @@ def prescription_payload(prescription):
 @login_required
 def prescriptions_page():
     user = User.query.get(session['user_id'])
+    if user.user_type not in {'admin', 'doctor', 'patient'}:
+        flash('Prescription access required', 'danger')
+        return redirect(url_for('index'))
     can_create = user.user_type in PRESCRIPTION_STAFF_ROLES
     if user.user_type == 'patient':
         prescriptions = Prescription.query.filter_by(patient_id=user.id).order_by(Prescription.created_at.desc()).all()
@@ -1451,6 +2432,8 @@ def api_prescriptions():
             signature_name=signature_name
         )
         db.session.add(prescription)
+        db.session.commit()
+        record_audit('create', 'prescription', prescription.id, {'patient_id': prescription.patient_id, 'doctor_id': prescription.doctor_id})
         db.session.commit()
         return jsonify({'success': True, 'prescription': prescription_payload(prescription)}), 201
     if user.user_type == 'patient':
@@ -1525,11 +2508,16 @@ def pay_bill(bill_id):
     bill = Bill.query.get(bill_id)
     if not bill:
         return jsonify({'error': 'Bill not found'}), 404
-    if bill.user_id != session['user_id'] and session.get('user_type') != 'admin':
+    user = current_user()
+    if not user or (bill.user_id != user.id and user.user_type not in {'admin', 'receptionist'}):
         return jsonify({'error': 'Access denied'}), 403
+    if user.user_type not in {'admin', 'receptionist', 'patient'} or (user.user_type == 'patient' and bill.user_id != user.id):
+        return jsonify({'error': 'Billing access required'}), 403
     bill.status = 'Paid'
     bill.payment_date = bill.payment_date or datetime.now()
     db.session.add(Notification(user_id=bill.user_id, message=f'Bill #{bill.id} was paid successfully.'))
+    db.session.commit()
+    record_audit('payment', 'billing', bill.id, {'status': bill.status, 'amount': bill.amount})
     db.session.commit()
     return jsonify({'success': True, 'message': 'Payment completed'})
 
@@ -1615,6 +2603,8 @@ def api_beds():
             notes=notes
         )
         db.session.add(bed)
+        db.session.commit()
+        record_audit('create', 'bed', bed.id, {'status': bed.status, 'patient_id': bed.patient_id})
         db.session.commit()
         return jsonify({'success': True, 'message': 'Bed added successfully', 'bed': bed_payload(bed)}), 201
 
@@ -1715,6 +2705,8 @@ def assign_bed(bed_id):
     bed.assigned_at = datetime.now()
     db.session.add(Notification(user_id=patient.id, message=f'Bed {bed.bed_number} has been assigned to you.'))
     db.session.commit()
+    record_audit('assign', 'bed', bed.id, {'patient_id': patient.id, 'bed_number': bed.bed_number})
+    db.session.commit()
     return jsonify({'success': True, 'message': 'Bed assigned successfully', 'bed': bed_payload(bed)})
 
 @app.route('/api/beds/<int:bed_id>/release', methods=['POST'])
@@ -1733,6 +2725,8 @@ def release_bed(bed_id):
     bed.status = 'Available'
     bed.assigned_at = None
     db.session.add(Notification(user_id=patient_id, message=f'Bed {bed.bed_number} has been released.'))
+    db.session.commit()
+    record_audit('release', 'bed', bed.id, {'patient_id': patient_id, 'bed_number': bed.bed_number})
     db.session.commit()
     return jsonify({'success': True, 'message': 'Bed released successfully', 'bed': bed_payload(bed)})
 
@@ -1761,7 +2755,7 @@ def api_lab_tests():
     user = User.query.get(session['user_id'])
 
     if request.method == 'POST':
-        if user.user_type not in {'admin', 'receptionist', 'patient'}:
+        if not has_permission(user, 'lab.write'):
             return jsonify({'error': 'Only admin, reception, or patients can book lab tests'}), 403
         data = request.get_json(silent=True) or {}
         test_name = (data.get('test_name') or '').strip()
@@ -1797,8 +2791,12 @@ def api_lab_tests():
         db.session.add(test)
         db.session.add(Notification(user_id=patient.id, message=f'Lab test booked: {test_name}.'))
         db.session.commit()
+        record_audit('create', 'lab', test.id, {'patient_id': test.patient_id, 'test_name': test.test_name})
+        db.session.commit()
         return jsonify({'success': True, 'message': 'Lab test booked successfully', 'test': lab_payload(test)}), 201
 
+    if not has_permission(user, 'lab.read'):
+        return jsonify({'error': 'Insufficient permissions'}), 403
     query = LabTest.query
     if user.user_type == 'patient':
         query = query.filter_by(patient_id=user.id)
@@ -1878,6 +2876,8 @@ def request_lab_test():
     db.session.add(test)
     db.session.add(Notification(user_id=patient.id, message=f'Doctor requested a lab test: {test_name}.'))
     db.session.commit()
+    record_audit('create', 'lab', test.id, {'patient_id': test.patient_id, 'test_name': test.test_name})
+    db.session.commit()
     return jsonify({'success': True, 'message': 'Lab test requested successfully', 'test': lab_payload(test)}), 201
 
 @app.route('/api/lab-tests/<int:test_id>', methods=['GET', 'PUT'])
@@ -1891,12 +2891,12 @@ def api_lab_test_detail(test_id):
         return jsonify({'error': 'Access denied'}), 403
     if user.user_type == 'doctor' and not doctor_patient_appointment(current_doctor(user).id, test.patient_id):
         return jsonify({'error': 'Access denied'}), 403
-    if user.user_type not in LAB_STAFF_ROLES and user.user_type != 'patient':
+    if not has_permission(user, 'lab.read'):
         return jsonify({'error': 'Access denied'}), 403
 
     if request.method == 'GET':
         return jsonify(lab_payload(test))
-    if user.user_type not in {'admin', 'lab_staff'}:
+    if not has_permission(user, 'lab.write') or user.user_type not in {'admin', 'lab_staff'}:
         return jsonify({'error': 'Only lab staff or admin can update test results'}), 403
 
     data = request.get_json(silent=True) or {}
@@ -1920,6 +2920,8 @@ def api_lab_test_detail(test_id):
     elif status != 'Completed':
         test.completed_at = None
     db.session.commit()
+    record_audit('update', 'lab', test.id, {'status': test.status, 'patient_id': test.patient_id})
+    db.session.commit()
     return jsonify({'success': True, 'message': 'Lab test updated successfully', 'test': lab_payload(test)})
 
 @app.route('/lab-tests/<int:test_id>/report')
@@ -1929,7 +2931,7 @@ def lab_report(test_id):
     if not test:
         return render_template('404.html'), 404
     user = User.query.get(session['user_id'])
-    if test.status != 'Completed' or (user.user_type == 'patient' and test.patient_id != user.id) or (user.user_type == 'doctor' and not doctor_patient_appointment(current_doctor(user).id, test.patient_id)) or (user.user_type not in LAB_STAFF_ROLES and user.user_type != 'patient'):
+    if test.status != 'Completed' or not has_permission(user, 'lab.read') or (user.user_type == 'patient' and test.patient_id != user.id) or (user.user_type == 'doctor' and not doctor_patient_appointment(current_doctor(user).id, test.patient_id)):
         return render_template('404.html'), 404
     return render_template('lab_report.html', test=test)
 
@@ -1939,7 +2941,7 @@ def lab_report(test_id):
 @login_required
 def pharmacy_page():
     user = User.query.get(session['user_id'])
-    if user.user_type not in PHARMACY_STAFF_ROLES:
+    if not has_permission(user, 'pharmacy.read'):
         flash('Pharmacy access required', 'danger')
         return redirect(url_for('index'))
     patients = User.query.filter_by(user_type='patient').order_by(User.full_name).all()
@@ -2093,6 +3095,8 @@ def update_medicine_stock(medicine_id):
         return jsonify({'error': 'Stock cannot be reduced below zero'}), 400
     medicine.quantity += change
     db.session.commit()
+    record_audit('stock_change', 'pharmacy', medicine.id, {'change': change, 'quantity': medicine.quantity})
+    db.session.commit()
     return jsonify({'success': True, 'message': 'Stock updated successfully', 'medicine': medicine_payload(medicine)})
 
 @app.route('/api/pharmacy/patients/<int:patient_id>/prescriptions')
@@ -2167,6 +3171,8 @@ def api_medicine_sales():
         db.session.add(sale)
         db.session.add(Notification(user_id=patient.id, message=f'{quantity} unit(s) of {medicine.medicine_name} were dispensed.'))
         db.session.commit()
+        record_audit('dispense', 'pharmacy', sale.id, {'medicine_id': sale.medicine_id, 'patient_id': sale.patient_id, 'quantity': sale.quantity})
+        db.session.commit()
         return jsonify({'success': True, 'message': 'Medicine dispensed successfully', 'sale': medicine_sale_payload(sale)}), 201
 
     query = MedicineSale.query
@@ -2189,6 +3195,7 @@ def my_medicine_sales():
 # ==================== TOKEN QUEUE MANAGEMENT ====================
 
 @app.route('/queue')
+@login_required
 def queue_page():
     return render_template(
         'queue.html',
@@ -2200,14 +3207,18 @@ def queue_page():
 
 @app.route('/api/queue', methods=['GET'])
 def api_queue():
+    user = current_user()
+    if not user or not has_permission(user, 'queue.read'):
+        return jsonify({'error': 'Queue access required'}), 403 if user else 401
     queue_date_value = request.args.get('date') or date.today().isoformat()
     try:
         queue_date = date.fromisoformat(queue_date_value)
     except ValueError:
         return jsonify({'error': 'Invalid queue date'}), 400
     query = Appointment.query.join(Doctor).filter(Appointment.queue_date == queue_date)
-    user = User.query.get(session.get('user_id')) if session.get('user_id') else None
     doctor = current_doctor(user) if user and user.user_type == 'doctor' else None
+    if user.user_type == 'patient':
+        query = query.filter(Appointment.user_id == user.id)
     if user and user.user_type == 'doctor':
         if not doctor:
             return jsonify({'error': 'Doctor profile is not linked to this account'}), 403
@@ -2267,6 +3278,8 @@ def call_next_queue_patient():
     appointment.queue_status = 'Called'
     appointment.called_at = datetime.now()
     db.session.commit()
+    record_audit('update', 'appointment', appointment.id, {'queue_status': appointment.queue_status})
+    db.session.commit()
     return jsonify({'success': True, 'message': f'Token {appointment.token_number} called', 'entry': queue_payload(appointment)})
 
 @app.route('/api/queue/<int:appointment_id>', methods=['PUT'])
@@ -2299,6 +3312,8 @@ def update_queue_status(appointment_id):
     if new_status == 'No Show':
         appointment.queue_completed_at = appointment.queue_completed_at or datetime.now()
         appointment.status = 'Cancelled'
+    db.session.commit()
+    record_audit('update', 'appointment', appointment.id, {'queue_status': appointment.queue_status, 'status': appointment.status})
     db.session.commit()
     return jsonify({'success': True, 'message': 'Queue status updated', 'entry': queue_payload(appointment)})
 
@@ -2342,6 +3357,8 @@ def create_walk_in():
     )
     db.session.add(appointment)
     db.session.commit()
+    record_audit('create', 'appointment', appointment.id, {'source': 'walk_in', 'doctor_id': appointment.doctor_id, 'patient_id': appointment.user_id})
+    db.session.commit()
     return jsonify({'success': True, 'message': 'Walk-in token generated', 'entry': queue_payload(appointment)}), 201
 
 # ==================== APPOINTMENTS ====================
@@ -2352,9 +3369,15 @@ def appointments_page():
     return render_template('appointments.html', doctors=doctors)
 
 @app.route('/calendar')
-@login_required
+@permission_required('appointments.read')
 def calendar_page():
-    appointments = Appointment.query.all() if session.get('user_type') == 'admin' else Appointment.query.filter_by(user_id=session['user_id']).all()
+    user = current_user()
+    if user.user_type == 'admin' or user.user_type in {'receptionist', 'nurse'}:
+        appointments = Appointment.query.all()
+    elif user.user_type == 'doctor' and current_doctor(user):
+        appointments = Appointment.query.filter_by(doctor_id=current_doctor(user).id).all()
+    else:
+        appointments = Appointment.query.filter_by(user_id=user.id).all()
     return render_template('calendar.html', appointments=appointments)
 
 @app.route('/admin-reports')
@@ -2486,6 +3509,14 @@ def api_appointments():
         
         user_id = None
         if 'user_id' in session:
+            user = current_user()
+            if user.user_type == 'patient':
+                requested_user_id = data.get('user_id', user.id)
+                if str(requested_user_id) != str(user.id):
+                    return jsonify({'error': 'Patients can only book appointments for themselves'}), 403
+                data['patient_name'] = user.full_name
+                data['patient_email'] = user.email
+                data['patient_phone'] = user.phone or data.get('patient_phone')
             user_id = session['user_id']
         duplicate = active_queue_duplicate(data.get('patient_email'), user_id, doctor.id, appointment_datetime)
         if duplicate:
@@ -2505,9 +3536,22 @@ def api_appointments():
         )
         db.session.add(appointment)
         db.session.commit()
+        record_audit('create', 'appointment', appointment.id, {'doctor_id': appointment.doctor_id, 'patient_id': appointment.user_id})
+        db.session.commit()
         return jsonify({'success': True, 'message': 'Appointment booked successfully', 'id': appointment.id, 'token_number': appointment.token_number, 'queue_status': appointment.queue_status})
     
-    appointments = Appointment.query.all()
+    user = current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    if not has_permission(user, 'appointments.read'):
+        return jsonify({'error': 'Insufficient permissions'}), 403
+    if user.user_type == 'patient':
+        appointments = Appointment.query.filter_by(user_id=user.id).all()
+    elif user.user_type == 'doctor':
+        doctor = current_doctor(user)
+        appointments = Appointment.query.filter_by(doctor_id=doctor.id).all() if doctor else []
+    else:
+        appointments = Appointment.query.all()
     return jsonify([{
         'id': a.id,
         'patient_name': a.patient_name,
@@ -2526,6 +3570,19 @@ def api_appointment_detail(appointment_id):
     appointment = Appointment.query.get(appointment_id)
     if not appointment:
         return jsonify({'error': 'Appointment not found'}), 404
+    user = current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    if user.user_type == 'patient' and appointment.user_id != user.id:
+        return jsonify({'error': 'Access denied'}), 403
+    if user.user_type == 'doctor':
+        doctor = current_doctor(user)
+        if not doctor or appointment.doctor_id != doctor.id:
+            return jsonify({'error': 'Access denied'}), 403
+    if request.method == 'GET' and not has_permission(user, 'appointments.read'):
+        return jsonify({'error': 'Insufficient permissions'}), 403
+    if request.method in {'PUT', 'DELETE'} and not has_permission(user, 'appointments.write'):
+        return jsonify({'error': 'Insufficient permissions'}), 403
     
     if request.method == 'PUT':
         access_error = admin_api_required()
@@ -2540,6 +3597,8 @@ def api_appointment_detail(appointment_id):
             appointment.queue_status = 'No Show'
             appointment.queue_completed_at = appointment.queue_completed_at or datetime.now()
         db.session.commit()
+        record_audit('update', 'appointment', appointment.id, {'status': appointment.status})
+        db.session.commit()
         return jsonify({'success': True, 'message': 'Appointment updated'})
     
     elif request.method == 'DELETE':
@@ -2547,6 +3606,8 @@ def api_appointment_detail(appointment_id):
         if access_error:
             return access_error
         db.session.delete(appointment)
+        db.session.commit()
+        record_audit('delete', 'appointment', appointment_id)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Appointment deleted'})
     
@@ -2570,6 +3631,8 @@ def confirm_appointment(appointment_id):
         return redirect(url_for('admin_dashboard', _anchor='appointments'))
 
     appointment.status = 'Confirmed'
+    db.session.commit()
+    record_audit('update', 'appointment', appointment.id, {'status': appointment.status})
     db.session.commit()
     flash(f'Appointment #{appointment.id} confirmed successfully', 'success')
     return redirect(url_for('admin_dashboard', _anchor='appointments'))
@@ -2627,19 +3690,19 @@ def grouped_invoices(bills):
     return [invoice_payload(group) for group in groups.values()]
 
 @app.route('/invoices')
-@login_required
+@permission_required('billing.read')
 def invoices_page():
     user = User.query.get(session['user_id'])
     return render_template('invoices.html', is_admin=user.user_type == 'admin')
 
 @app.route('/api/invoices', methods=['GET'])
-@login_required
+@permission_required('billing.read')
 def api_invoices():
-    user = User.query.get(session['user_id'])
+    user = current_user()
     query = Bill.query
     if user.user_type == 'patient':
         query = query.filter_by(user_id=user.id)
-    elif user.user_type != 'admin':
+    elif user.user_type not in {'admin', 'receptionist'}:
         return jsonify({'error': 'Access denied'}), 403
     bills = query.order_by(Bill.created_at.desc()).all()
     search = (request.args.get('q') or '').strip().lower()
@@ -2667,9 +3730,11 @@ def api_invoices():
 
 @app.route('/api/invoices/generate', methods=['POST'])
 def generate_invoice():
-    access_error = admin_api_required()
-    if access_error:
-        return access_error
+    user = current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    if not has_permission(user, 'billing.write') or user.user_type == 'patient':
+        return jsonify({'error': 'Billing management access required'}), 403
     data = request.get_json(silent=True) or {}
     try:
         bill_ids = [int(bill_id) for bill_id in data.get('bill_ids', [])]
@@ -2698,16 +3763,18 @@ def generate_invoice():
     bills[0].discount_amount = discount
     bills[0].tax_amount = tax
     db.session.commit()
+    record_audit('update', 'billing', bills[0].id, {'invoice_number': number, 'bill_ids': bill_ids})
+    db.session.commit()
     return jsonify({'success': True, 'invoice': invoice_payload(bills)}), 201
 
 @app.route('/api/invoices/<path:invoice_number>/pdf')
 @login_required
 def invoice_pdf(invoice_number):
-    user = User.query.get(session['user_id'])
+    user = current_user()
     bills = Bill.query.filter((Bill.invoice_number == invoice_number) | (Bill.id == int(invoice_number.removeprefix('INV-').split('-')[-1]) if invoice_number.startswith('INV-') and invoice_number.removeprefix('INV-').split('-')[-1].isdigit() else False)).all()
     if not bills or (user.user_type == 'patient' and any(bill.user_id != user.id for bill in bills)):
         return jsonify({'error': 'Invoice not found'}), 404
-    if user.user_type not in {'admin', 'patient'}:
+    if user.user_type not in {'admin', 'patient', 'receptionist'}:
         return jsonify({'error': 'Access denied'}), 403
     invoice = invoice_payload(bills)
     try:
@@ -2744,17 +3811,24 @@ def invoice_pdf(invoice_number):
     return send_file(buffer, mimetype='application/pdf', as_attachment=request.args.get('print') != '1', download_name=f'{invoice["invoice_number"]}.pdf')
 
 @app.route('/bills')
+@login_required
 def bills_page():
-    bills = Bill.query.filter_by(user_id=session['user_id']).all() if session.get('user_type') == 'patient' else Bill.query.all()
+    user = current_user()
+    if not has_permission(user, 'billing.read'):
+        flash('Billing access required', 'danger')
+        return redirect(url_for('index'))
+    bills = Bill.query.filter_by(user_id=user.id).all() if user.user_type == 'patient' else Bill.query.all()
     services = Service.query.all()
     return render_template('bills.html', bills=bills, services=services)
 
 @app.route('/api/bills', methods=['GET', 'POST'])
 def api_bills():
+    user = current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
     if request.method == 'POST':
-        access_error = admin_api_required()
-        if access_error:
-            return access_error
+        if not has_permission(user, 'billing.write') or user.user_type == 'patient':
+            return jsonify({'error': 'Billing management access required'}), 403
         data = request.get_json()
         due_date = datetime.now() + timedelta(days=30)
         
@@ -2773,9 +3847,13 @@ def api_bills():
         )
         db.session.add(bill)
         db.session.commit()
+        record_audit('create', 'billing', bill.id, {'amount': bill.amount, 'patient_id': bill.user_id})
+        db.session.commit()
         return jsonify({'success': True, 'message': 'Bill created', 'id': bill.id})
     
-    bills = Bill.query.filter_by(user_id=session['user_id']).all() if session.get('user_type') == 'patient' else Bill.query.all()
+    if not has_permission(user, 'billing.read'):
+        return jsonify({'error': 'Insufficient permissions'}), 403
+    bills = Bill.query.filter_by(user_id=user.id).all() if user.user_type == 'patient' else Bill.query.all()
     return jsonify([{
         'id': b.id,
         'patient_name': b.patient_name,
@@ -2790,23 +3868,30 @@ def api_bill_detail(bill_id):
     bill = Bill.query.get(bill_id)
     if not bill:
         return jsonify({'error': 'Bill not found'}), 404
+    user = current_user()
+    if not user:
+        return jsonify({'error': 'Authentication required'}), 401
+    if bill.user_id != user.id and user.user_type not in {'admin', 'receptionist'}:
+        return jsonify({'error': 'Access denied'}), 403
+    if request.method == 'GET' and not has_permission(user, 'billing.read'):
+        return jsonify({'error': 'Insufficient permissions'}), 403
+    if request.method in {'PUT', 'DELETE'} and not has_permission(user, 'billing.write'):
+        return jsonify({'error': 'Billing management access required'}), 403
     
     if request.method == 'PUT':
-        access_error = admin_api_required()
-        if access_error:
-            return access_error
         data = request.get_json()
         bill.status = data.get('status', bill.status)
         if bill.status == 'Paid':
             bill.payment_date = bill.payment_date or datetime.now()
         db.session.commit()
+        record_audit('update', 'billing', bill.id, {'status': bill.status})
+        db.session.commit()
         return jsonify({'success': True, 'message': 'Bill updated'})
     
     elif request.method == 'DELETE':
-        access_error = admin_api_required()
-        if access_error:
-            return access_error
         db.session.delete(bill)
+        db.session.commit()
+        record_audit('delete', 'billing', bill_id)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Bill deleted'})
     

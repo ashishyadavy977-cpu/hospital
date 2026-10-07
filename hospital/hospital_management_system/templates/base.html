@@ -31,6 +31,8 @@
                 <li><a href="/bills" class="nav-link">Billing</a></li>
                 {% if session.get('user_id') %}<li><a href="{{ url_for('invoices_page') }}" class="nav-link">Invoices</a></li>{% endif %}
                 {% if session.get('user_id') %}<li><a href="{{ url_for('laboratory_page') }}" class="nav-link">Laboratory</a></li>{% endif %}
+                {% if session.get('user_type') in ['admin', 'doctor', 'receptionist', 'nurse', 'patient'] %}<li><a href="{{ url_for('emergency_page') }}" class="nav-link"><i class="fas fa-truck-medical"></i> Emergency</a></li>{% endif %}
+                {% if session.get('user_type') in ['admin', 'doctor', 'receptionist', 'nurse', 'patient'] %}<li><a href="{{ url_for('blood_bank_page') }}" class="nav-link"><i class="fas fa-droplet"></i> Blood Bank</a></li>{% endif %}
                 {% if session.get('user_type') in ['admin', 'pharmacist', 'receptionist'] %}<li><a href="{{ url_for('pharmacy_page') }}" class="nav-link">Pharmacy</a></li>{% endif %}
                 {% if session.get('user_id') %}
                     <li class="user-menu-item">
@@ -43,6 +45,7 @@
                                 <li><a href="{{ url_for('analytics_page') }}"><i class="fas fa-chart-pie"></i> Analytics</a></li>
                                 <li><a href="{{ url_for('admin_reports') }}"><i class="fas fa-chart-bar"></i> Reports</a></li>
                                 <li><a href="{{ url_for('beds_page') }}"><i class="fas fa-bed"></i> Bed Management</a></li>
+                                <li><a href="{{ url_for('audit_logs_page') }}"><i class="fas fa-shield-alt"></i> Audit Logs</a></li>
                             {% elif session.get('user_type') == 'doctor' %}
                                 <li><a href="{{ url_for('doctor_dashboard') }}"><i class="fas fa-stethoscope"></i> Doctor Dashboard</a></li>
                             {% else %}

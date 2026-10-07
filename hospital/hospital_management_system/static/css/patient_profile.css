@@ -1,3 +1,11 @@
+.patient-qr-card { display:flex; justify-content:space-between; align-items:center; gap:24px; }
+.patient-qr-card h2 { margin:0 0 6px; }
+.patient-qr-card p { color:#687987; margin:0; }
+.patient-qr-content { display:flex; align-items:center; gap:18px; }
+.patient-qr-content img { width:150px; height:150px; image-rendering:auto; border:1px solid #dbe5eb; padding:8px; background:#fff; }
+.patient-qr-actions { display:flex; flex-direction:column; gap:8px; }
+.profile-secondary { display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:10px 14px; border:1px solid #cbd8df; border-radius:5px; color:#284756; text-decoration:none; font-weight:600; }
+@media (max-width:700px) { .patient-qr-card, .patient-qr-content { align-items:flex-start; flex-direction:column; } .patient-qr-actions { flex-direction:row; } }
 body:has(.patient-profile-page) { background: #f3f7f8; }
 .patient-profile-page { max-width: 1480px; margin: 0 auto; padding: 30px 32px 64px; color: #193847; }
 .profile-hero { display: flex; align-items: center; gap: 18px; padding: 30px 34px; color: #fff; background: linear-gradient(120deg, #104e64, #197f86); border-radius: 16px; box-shadow: 0 15px 32px rgba(21, 83, 97, .18); }

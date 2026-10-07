@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Audit Logs - Hospital Management System{% endblock %}
+
+{% block content %}
+<div class="container" style="padding: 32px 0;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:24px;">
+        <div>
+            <p style="color:#64748b; margin:0 0 6px;">Security and compliance</p>
+            <h1 style="margin:0;">Audit Logs</h1>
+        </div>
+        <a class="btn btn-secondary" href="{{ url_for('admin_dashboard') }}">Back to dashboard</a>
+    </div>
+
+    <form method="GET" class="card" style="padding:20px; margin-bottom:24px; display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px; align-items:end;">
+        <label>Search
+            <input type="search" name="search" value="{{ request.args.get('search', '') }}" placeholder="Username, record, metadata">
+        </label>
+        <label>User
+            <select name="user_id">
+                <option value="">All users</option>
+                {% for user in users %}
+                    <option value="{{ user.id }}" {% if request.args.get('user_id') == user.id|string %}selected{% endif %}>{{ user.username }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Action
+            <select name="action">
+                <option value="">All actions</option>
+                {% for item in actions %}
+                    <option value="{{ item[0] }}" {% if request.args.get('action') == item[0] %}selected{% endif %}>{{ item[0] }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Module
+            <select name="module">
+                <option value="">All modules</option>
+                {% for item in modules %}
+                    <option value="{{ item[0] }}" {% if request.args.get('module') == item[0] %}selected{% endif %}>{{ item[0] }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>From
+            <input type="date" name="date_from" value="{{ request.args.get('date_from', '') }}">
+        </label>
+        <label>To
+            <input type="date" name="date_to" value="{{ request.args.get('date_to', '') }}">
+        </label>
+        <div style="display:flex; gap:8px;">
+            <button class="btn btn-primary" type="submit">Filter</button>
+            <a class="btn btn-secondary" href="{{ url_for('audit_logs_page') }}">Clear</a>
+        </div>
+    </form>
+
+    <div class="card" style="overflow:auto;">
+        <table style="width:100%; border-collapse:collapse; min-width:900px;">
+            <thead>
+                <tr>
+                    <th style="text-align:left; padding:12px;">Timestamp</th>
+                    <th style="text-align:left; padding:12px;">User</th>
+                    <th style="text-align:left; padding:12px;">Role</th>
+                    <th style="text-align:left; padding:12px;">Action</th>
+                    <th style="text-align:left; padding:12px;">Module</th>
+                    <th style="text-align:left; padding:12px;">Record</th>
+                    <th style="text-align:left; padding:12px;">Metadata</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td style="padding:12px;">{{ log.timestamp|replace('T', ' ') }}</td>
+                    <td style="padding:12px;">{{ log.username }}</td>
+                    <td style="padding:12px;">{{ log.role }}</td>
+                    <td style="padding:12px;"><span class="status-badge">{{ log.action }}</span></td>
+                    <td style="padding:12px;">{{ log.module }}</td>
+                    <td style="padding:12px;">{{ log.record_id or '-' }}</td>
+                    <td style="padding:12px; max-width:360px; word-break:break-word;"><code>{{ log.metadata|tojson }}</code></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" style="padding:28px; text-align:center;">No audit events found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p style="color:#64748b; margin-top:12px;">Showing up to 200 matching events. Audit records cannot be edited or deleted through the application.</p>
+</div>
+{% endblock %}

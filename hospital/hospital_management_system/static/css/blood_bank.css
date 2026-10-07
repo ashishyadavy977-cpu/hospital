@@ -1,0 +1,47 @@
+.blood-bank-page { padding: 32px 0 56px; }
+.blood-bank-header { display:flex; justify-content:space-between; align-items:end; gap:20px; margin-bottom:24px; padding:26px 28px; border:1px solid #f2d4d4; border-left:5px solid #c53030; border-radius:12px; background:linear-gradient(120deg, #fffafa 0%, #f7fbfd 72%); box-shadow:0 8px 24px rgba(47, 61, 72, .07); }
+.blood-bank-header h1 { margin:0 0 6px; color:#18384a; font-size:clamp(1.65rem, 3vw, 2.25rem); letter-spacing:-.02em; }
+.blood-bank-header p { margin:0; color:#6b7d88; }
+.blood-bank-header .blood-badge { box-shadow:0 1px 0 rgba(39, 103, 73, .08); }
+.blood-bank-grid { display:grid; grid-template-columns:minmax(280px,360px) 1fr; gap:22px; align-items:start; }
+.blood-bank-panel { background:rgba(255,255,255,.96); border:1px solid #dbe5eb; border-radius:10px; box-shadow:0 5px 20px rgba(26,56,74,.07); padding:24px; }
+.blood-bank-panel h2 { margin:0 0 5px; color:#19384b; font-size:1.2rem; }
+.blood-bank-panel > p { color:#71808a; margin:0 0 18px; font-size:.92rem; }
+.blood-bank-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:22px; }
+.blood-bank-stat { position:relative; overflow:hidden; background:#fff; border:1px solid #dbe5eb; border-radius:10px; padding:17px 16px 15px; box-shadow:0 4px 14px rgba(26,56,74,.045); }
+.blood-bank-stat::after { content:''; position:absolute; right:-18px; bottom:-24px; width:72px; height:72px; border-radius:50%; background:#edf6fa; }
+.blood-bank-stat:nth-child(1) { border-top:3px solid #c53030; }
+.blood-bank-stat:nth-child(2) { border-top:3px solid #b7791f; }
+.blood-bank-stat:nth-child(3) { border-top:3px solid #dd6b20; }
+.blood-bank-stat:nth-child(4) { border-top:3px solid #2b6cb0; }
+.blood-bank-stat span { display:block; color:#70808d; font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; }
+.blood-bank-stat strong { position:relative; z-index:1; display:block; color:#18384a; font-size:1.9rem; margin-top:5px; }
+.blood-bank-stat.warning strong { color:#b7791f; }
+.blood-bank-form { display:grid; gap:12px; }
+.blood-bank-form label { display:grid; gap:5px; color:#3f5360; font-size:.86rem; font-weight:600; }
+.blood-bank-form input, .blood-bank-form select, .blood-bank-form textarea { width:100%; border:1px solid #cbd8df; border-radius:5px; padding:9px 10px; font:inherit; color:#263c48; background:#fff; }
+.blood-bank-form textarea { resize:vertical; }
+.blood-bank-form .form-actions { display:flex; gap:8px; margin-top:4px; }
+.blood-bank-message { margin-bottom:16px; }
+.blood-bank-toolbar { display:flex; justify-content:space-between; align-items:end; gap:12px; margin-bottom:16px; }
+.blood-bank-toolbar label { display:grid; gap:5px; color:#3f5360; font-size:.86rem; font-weight:600; }
+.blood-bank-toolbar input, .blood-bank-toolbar select { border:1px solid #cbd8df; border-radius:5px; padding:8px 10px; font:inherit; }
+.blood-bank-table-wrap { overflow-x:auto; }
+.blood-bank-table { width:100%; border-collapse:collapse; min-width:760px; }
+.blood-bank-table th, .blood-bank-table td { border-bottom:1px solid #e7eef2; padding:14px 12px; text-align:left; vertical-align:top; }
+.blood-bank-table th { color:#61737f; background:#f8fbfc; font-size:.76rem; text-transform:uppercase; letter-spacing:.05em; }
+.blood-bank-table td { color:#304753; font-size:.9rem; }
+.blood-bank-table tbody tr { transition:background .18s ease; }
+.blood-bank-table tbody tr:hover { background:#fff8f8; }
+.blood-badge { display:inline-flex; align-items:center; border-radius:999px; padding:4px 9px; font-size:.74rem; font-weight:700; white-space:nowrap; }
+.blood-badge.low { color:#9b2c2c; background:#fff5f5; }
+.blood-badge.ok { color:#276749; background:#f0fff4; }
+.blood-badge.pending { color:#975a16; background:#fffaf0; }
+.blood-badge.approved { color:#2b6cb0; background:#ebf8ff; }
+.blood-badge.rejected { color:#9b2c2c; background:#fff5f5; }
+.blood-badge.fulfilled { color:#276749; background:#f0fff4; }
+.blood-bank-inline { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.blood-bank-inline input { width:75px; border:1px solid #cbd8df; border-radius:5px; padding:6px; }
+.blood-bank-section { margin-top:22px; }
+@media (max-width:980px) { .blood-bank-grid { grid-template-columns:1fr; } .blood-bank-stats { grid-template-columns:repeat(2,1fr); } }
+@media (max-width:620px) { .blood-bank-header, .blood-bank-toolbar { align-items:start; flex-direction:column; } .blood-bank-panel { padding:16px; } }

@@ -51,6 +51,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 14px;
 }
 
 .navbar-brand {
@@ -75,13 +76,24 @@ body {
 .nav-menu {
     display: flex;
     list-style: none;
-    gap: 2rem;
+    gap: 1rem;
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.nav-menu::-webkit-scrollbar {
+    display: none;
 }
 
 .nav-link {
     color: white;
     text-decoration: none;
     transition: opacity 0.3s;
+    white-space: nowrap;
+    font-size: 0.84rem;
 }
 
 .nav-link:hover {
@@ -91,6 +103,7 @@ body {
 .search-container {
     display: flex;
     gap: 5px;
+    flex: 0 0 auto;
 }
 
 .search-input {
@@ -98,6 +111,11 @@ body {
     border: none;
     border-radius: 5px;
     width: 200px;
+}
+
+@media (max-width: 1320px) {
+    .search-container { display: none; }
+    .nav-menu { gap: .78rem; }
 }
 
 .search-btn {

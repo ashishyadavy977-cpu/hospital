@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block title %}Blood Bank Management - MediCare Hospital{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/blood_bank.css') }}">{% endblock %}
+
+{% block content %}
+<div class="container blood-bank-page">
+    <div class="blood-bank-header">
+        <div><h1>Blood Bank Management</h1><p>Monitor inventory, donations, and patient blood requests.</p></div>
+        <span class="blood-badge ok">Database-backed inventory</span>
+    </div>
+    <div id="bloodBankMessage" class="alert blood-bank-message" hidden role="status"></div>
+
+    <section class="blood-bank-stats">
+        <div class="blood-bank-stat"><span>Available units</span><strong id="availableUnits">0</strong></div>
+        <div class="blood-bank-stat"><span>Reserved units</span><strong id="reservedUnits">0</strong></div>
+        <div class="blood-bank-stat warning"><span>Low-stock groups</span><strong id="lowStockGroups">0</strong></div>
+        <div class="blood-bank-stat"><span>Pending requests</span><strong id="pendingRequests">0</strong></div>
+    </section>
+
+    <section class="blood-bank-panel">
+        <div class="blood-bank-toolbar">
+            <div><h2>Blood Inventory</h2><p style="margin:0;">Available and reserved units by blood group.</p></div>
+            <label>Filter blood group<select id="bloodGroupFilter"><option value="">All groups</option>{% for group in blood_groups %}<option value="{{ group }}">{{ group }}</option>{% endfor %}</select></label>
+        </div>
+        <div class="blood-bank-table-wrap"><table class="blood-bank-table"><thead><tr><th>Group</th><th>Available</th><th>Reserved</th><th>Total</th><th>Stock</th>{% if can_manage %}<th>Manage</th>{% endif %}</tr></thead><tbody id="inventoryBody"><tr><td colspan="6">Loading inventory...</td></tr></tbody></table></div>
+    </section>
+
+    <div class="blood-bank-grid blood-bank-section">
+        {% if can_manage %}
+        <section class="blood-bank-panel">
+            <h2>Donor Record</h2><p>Contact details are stored for operations but omitted from donor listings.</p>
+            <form id="donorForm" class="blood-bank-form">
+                <label>Donor name<input id="donorName" maxlength="100" required></label>
+                <label>Blood group<select id="donorGroup">{% for group in blood_groups %}<option value="{{ group }}">{{ group }}</option>{% endfor %}</select></label>
+                <label>Phone<input id="donorPhone" maxlength="20"></label>
+                <label>Email<input id="donorEmail" type="email" maxlength="100"></label>
+                <label>Eligibility<select id="donorEligibility"><option>Eligible</option><option>Deferred</option></select></label>
+                <label>Last donation date<input id="lastDonationDate" type="date"></label>
+                <div class="form-actions"><button class="btn btn-primary" type="submit">Save donor</button></div>
+            </form>
+        </section>
+        <section class="blood-bank-panel">
+            <h2>Record Donation</h2><p>Collected donations immediately increase available inventory.</p>
+            <form id="donationForm" class="blood-bank-form">
+                <label>Donor<select id="donorId" required><option value="">Select donor...</option></select></label>
+                <label>Units<input id="donationUnits" type="number" min="1" max="10" value="1" required></label>
+                <label>Donation date<input id="donationDate" type="date"></label>
+                <label>Notes<textarea id="donationNotes" rows="2" maxlength="500"></textarea></label>
+                <div class="form-actions"><button class="btn btn-danger" type="submit">Record donation</button></div>
+            </form>
+        </section>
+        {% endif %}
+    </div>
+
+    <section class="blood-bank-panel blood-bank-section">
+        <div class="blood-bank-toolbar"><div><h2>Blood Requests</h2><p style="margin:0;">Requests reserve units only after approval.</p></div><button class="btn btn-secondary" id="refreshBloodBank" type="button"><i class="fas fa-sync-alt"></i> Refresh</button></div>
+        {% if can_manage or is_patient %}
+        <form id="requestForm" class="blood-bank-form" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); align-items:end; margin-bottom:20px;">
+            {% if can_manage %}<label>Patient<select id="requestPatient"><option value="">Select patient...</option>{% for patient in patients %}<option value="{{ patient.id }}">{{ patient.full_name }}</option>{% endfor %}</select></label>{% endif %}
+            <label>Blood group<select id="requestGroup">{% for group in blood_groups %}<option value="{{ group }}">{{ group }}</option>{% endfor %}</select></label>
+            <label>Units<input id="requestUnits" type="number" min="1" max="100" value="1" required></label>
+            <label>Urgency<select id="requestUrgency"><option>Routine</option><option>Urgent</option><option>Critical</option></select></label>
+            <label>Notes<input id="requestNotes" maxlength="500"></label>
+            <div class="form-actions"><button class="btn btn-primary" type="submit">Create request</button></div>
+        </form>
+        {% endif %}
+        <div class="blood-bank-table-wrap"><table class="blood-bank-table"><thead><tr><th>Patient</th><th>Group</th><th>Units</th><th>Urgency</th><th>Status</th><th>Requested</th>{% if can_manage %}<th>Update</th>{% endif %}</tr></thead><tbody id="requestsBody"><tr><td colspan="7">Loading requests...</td></tr></tbody></table></div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const canManageBlood = {{ can_manage|tojson }};
+const isBloodPatient = {{ is_patient|tojson }};
+const bloodGroups = {{ blood_groups|tojson }};
+const bloodBankMessage = document.getElementById('bloodBankMessage');
+const requestStatuses = ['Pending', 'Approved', 'Rejected', 'Fulfilled'];
+function escapeBlood(value) { return String(value ?? '').replace(/[&<>'"]/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[character])); }
+function showBloodMessage(message, type = 'success') { bloodBankMessage.textContent = message; bloodBankMessage.className = `alert alert-${type} blood-bank-message`; bloodBankMessage.hidden = false; window.setTimeout(() => { bloodBankMessage.hidden = true; }, 5000); }
+function badgeClass(value) { return String(value || '').toLowerCase().replace(/\s+/g, '-'); }
+async function bloodJson(url, options = {}) { const response = await fetch(url, options); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Blood bank request failed.'); return result; }
+function renderInventory(items) {
+    const body = document.getElementById('inventoryBody');
+    body.innerHTML = items.length ? items.map(item => `<tr><td><strong>${escapeBlood(item.blood_group)}</strong></td><td>${item.available_units}</td><td>${item.reserved_units}</td><td>${item.total_units}</td><td><span class="blood-badge ${item.is_low_stock ? 'low' : 'ok'}">${item.is_low_stock ? 'Low stock' : 'Healthy'}</span></td>${canManageBlood ? `<td><div class="blood-bank-inline"><input id="available-${item.blood_group}" type="number" min="0" value="${item.available_units}" aria-label="Available units for ${item.blood_group}"><input id="reserved-${item.blood_group}" type="number" min="0" value="${item.reserved_units}" aria-label="Reserved units for ${item.blood_group}"><button class="btn btn-small btn-secondary" type="button" onclick="saveInventory('${item.blood_group}')">Save</button></div></td>` : ''}</tr>`).join('') : '<tr><td colspan="6">No inventory found.</td></tr>';
+}
+function renderRequests(items) {
+    const body = document.getElementById('requestsBody');
+    body.innerHTML = items.length ? items.map(item => `<tr><td>${escapeBlood(item.patient_name)}</td><td><strong>${escapeBlood(item.blood_group)}</strong></td><td>${item.units_requested}</td><td>${escapeBlood(item.urgency)}</td><td><span class="blood-badge ${badgeClass(item.status)}">${escapeBlood(item.status)}</span></td><td>${item.created_at ? new Date(item.created_at).toLocaleString() : '-'}</td>${canManageBlood ? `<td><select aria-label="Update request status" onchange="updateBloodRequest(${item.id}, this.value)">${requestStatuses.map(status => `<option value="${status}" ${status === item.status ? 'selected' : ''}>${status}</option>`).join('')}</select></td>` : ''}</tr>`).join('') : '<tr><td colspan="7">No blood requests found.</td></tr>';
+}
+async function loadBloodBank() {
+    try {
+        const group = document.getElementById('bloodGroupFilter').value;
+        const result = await bloodJson(`/api/blood-bank-dashboard${group ? `?blood_group=${encodeURIComponent(group)}` : ''}`);
+        document.getElementById('availableUnits').textContent = result.statistics.available_units;
+        document.getElementById('reservedUnits').textContent = result.statistics.reserved_units;
+        document.getElementById('lowStockGroups').textContent = result.statistics.low_stock_groups;
+        document.getElementById('pendingRequests').textContent = result.statistics.pending_requests;
+        renderInventory(result.inventory); renderRequests(result.requests);
+        if (canManageBlood) loadDonors();
+    } catch (error) { showBloodMessage(error.message, 'danger'); }
+}
+async function saveInventory(group) {
+    try { await bloodJson(`/api/blood-inventory/${group}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({available_units:document.getElementById(`available-${group}`).value, reserved_units:document.getElementById(`reserved-${group}`).value})}); showBloodMessage('Inventory updated.'); loadBloodBank(); }
+    catch (error) { showBloodMessage(error.message, 'danger'); }
+}
+async function updateBloodRequest(id, status) {
+    try { await bloodJson(`/api/blood-requests/${id}`, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status})}); showBloodMessage('Blood request updated.'); loadBloodBank(); }
+    catch (error) { showBloodMessage(error.message, 'danger'); loadBloodBank(); }
+}
+async function loadDonors() {
+    const select = document.getElementById('donorId'); if (!select) return;
+    try { const result = await bloodJson('/api/blood-donors'); select.innerHTML = '<option value="">Select donor...</option>' + result.donors.map(donor => `<option value="${donor.id}">${escapeBlood(donor.full_name)} (${escapeBlood(donor.blood_group)})</option>`).join(''); }
+    catch (error) { showBloodMessage(error.message, 'danger'); }
+}
+document.getElementById('bloodGroupFilter').addEventListener('change', loadBloodBank);
+document.getElementById('refreshBloodBank').addEventListener('click', loadBloodBank);
+const requestForm = document.getElementById('requestForm');
+if (requestForm) requestForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const payload = {blood_group:document.getElementById('requestGroup').value, units_requested:document.getElementById('requestUnits').value, urgency:document.getElementById('requestUrgency').value, notes:document.getElementById('requestNotes').value};
+    if (canManageBlood) payload.patient_id = document.getElementById('requestPatient').value;
+    try { await bloodJson('/api/blood-requests', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}); requestForm.reset(); showBloodMessage('Blood request created.'); loadBloodBank(); }
+    catch (error) { showBloodMessage(error.message, 'danger'); }
+});
+const donorForm = document.getElementById('donorForm');
+if (donorForm) donorForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    try { await bloodJson('/api/blood-donors', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({full_name:document.getElementById('donorName').value, blood_group:document.getElementById('donorGroup').value, phone:document.getElementById('donorPhone').value, email:document.getElementById('donorEmail').value, eligibility_status:document.getElementById('donorEligibility').value, last_donation_date:document.getElementById('lastDonationDate').value})}); donorForm.reset(); showBloodMessage('Donor saved.'); loadDonors(); }
+    catch (error) { showBloodMessage(error.message, 'danger'); }
+});
+const donationForm = document.getElementById('donationForm');
+if (donationForm) donationForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    try { await bloodJson('/api/blood-donations', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({donor_id:document.getElementById('donorId').value, units:document.getElementById('donationUnits').value, donation_date:document.getElementById('donationDate').value, notes:document.getElementById('donationNotes').value})}); donationForm.reset(); showBloodMessage('Donation recorded and inventory updated.'); loadBloodBank(); }
+    catch (error) { showBloodMessage(error.message, 'danger'); }
+});
+loadBloodBank();
+</script>
+{% endblock %}
